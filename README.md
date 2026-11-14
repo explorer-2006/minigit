@@ -6,6 +6,16 @@ Built as a Data Structures course project to demonstrate real-world use of linke
 
 ---
 
+## Team contributions
+
+| Team member | Commands implemented | Main data structures / concepts |
+|---|---|---|
+| **Jeevan Batra** | `init`, `add`, `commit`, `log` | File handling, commit linked list, parent-pointer traversal |
+| **Janisha Patel** | `branch`, `switch`, `branches`, `search` | Branch linked list, tree formation, linear search |
+| **Meet Manish Buddhdev** | `diff`, `revert`, `undo` | LCS recursion with 2D memoization, snapshot restore, stack |
+
+---
+
 ## How it works
 
 MiniGit has two parts:
