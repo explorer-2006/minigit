@@ -5,26 +5,33 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
-#include <dirent.h>
 
-#define MKDIR(p) _mkdir(p)
+#ifdef _WIN32
+    #include <direct.h>
+    #include <io.h>
+    #define MKDIR(p) _mkdir(p)
+#else
+    #include <sys/stat.h>
+    #include <dirent.h>
+    #define MKDIR(p) mkdir(p, 0755)
+#endif
 
 // required Structures 
 
-typedef struct Commit {
+typedef struct Commit{
     int id;
     int parentId;
     long timestamp;
     char message[100];
     struct Commit *parent;   // points to parent commit (history)
     struct Commit *next;     // points to next node (list traversal)
-} Commit;
+}Commit;
 
-typedef struct Branch {
+typedef struct Branch{
     char name[30];
     int headId;              // id of the latest commit on this branch
     struct Branch *next;     // next branch in the linked list
-} Branch;
+}Branch;
 
 // globals
 

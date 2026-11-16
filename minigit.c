@@ -1,4 +1,5 @@
 #include "minigit.h"
+#include <errno.h>
 
 Commit *commitHead = NULL;
 Commit *commitTail = NULL;
@@ -47,30 +48,217 @@ void copy_dir(const char *src, const char *dst) {
         // call copy_file(srcPath, dstPath)
     // close the folder
 
-    DIR *dir = opendir(src);
-    if (dir == NULL) {
-        printf("src directory not found\n");
+    #ifdef _WIN32
+        // windows version with _finddata_t
+        struct _finddata_t fileInfo;
+        intptr_t handle;
+
+        char searchPath[500];
+        sprintf(searchPath, "%s/*", src);
+
+        handle = _findfirst(searchPath, &fileInfo);
+        if (handle == -1) {
+            printf("src directory not found\n");
+            return;
+        }
+
+        do {
+            if (strcmp(fileInfo.name, ".") == 0 || strcmp(fileInfo.name, "..") == 0)
+                continue;
+            if (fileInfo.attrib & _A_SUBDIR)
+                continue;
+
+            char srcPath[500], dstPath[500];
+            sprintf(srcPath, "%s/%s", src, fileInfo.name);
+            sprintf(dstPath, "%s/%s", dst, fileInfo.name);
+            copy_file(srcPath, dstPath);
+
+        } while (_findnext(handle, &fileInfo) == 0);
+
+        _findclose(handle);
+
+
+    #else
+        //linux version with dirent.h
+        DIR *dir = opendir(src);
+        if (dir == NULL) {
+            printf("src directory not found\n");
+            return;
+        }
+
+        struct dirent *entry;
+        while ((entry = readdir(dir)) != NULL) {
+            if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0)
+                continue;
+
+            char srcPath[500], dstPath[500];
+            sprintf(srcPath, "%s/%s", src, entry->d_name);
+            sprintf(dstPath, "%s/%s", dst, entry->d_name);
+            copy_file(srcPath, dstPath);
+        }
+
+        closedir(dir);
+    #endif
+}
+
+void cmd_init() {
+    // try to create .minigit/ using MKDIR
+    // if it returns -1, print "already initialized" and return
+
+    // create .minigit/snapshots/
+
+    // create and close empty commits.dat
+    // create and close empty branches.dat
+    // create and close empty staging.dat
+    // create and close empty undo.dat
+
+    // open HEAD for writing, write "main", close it
+
+    // print "initialized empty MiniGit repository"
+
+    int retval = MKDIR(".minigit");
+    if(retval == -1){
+        printf("already initialized!!\n");
         return;
     }
-
-    struct dirent *entry;
-    while ((entry = readdir(dir)) != NULL) {
-        if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0)
-            continue;
-
-        char srcPath[500], dstPath[500];
-        sprintf(srcPath, "%s/%s", src, entry->d_name);
-        sprintf(dstPath, "%s/%s", dst, entry->d_name);
-        copy_file(srcPath, dstPath);
+    int retvalInternal = MKDIR(".minigit/snapshots");
+    if(retvalInternal == -1){
+        printf("some error occured in creating snapshots folder!!\n");
+        return;
+    }
+    else{
+        printf("snapshots folder created successfully\n");
     }
 
-    closedir(dir);
+    FILE *fp;
+
+    // Create commits.dat
+    fp = fopen(".minigit/commits.dat", "w");
+    if (fp == NULL) {
+        printf("Error creating commits.dat\n");
+        return ;
+    }
+    fclose(fp);
+
+    // Create branches.dat
+    fp = fopen(".minigit/branches.dat", "w");
+    if (fp == NULL) {
+        printf("Error creating branches.dat\n");
+        return ;
+    }
+    fclose(fp);
+
+    // Create staging.dat
+    fp = fopen(".minigit/staging.dat", "w");
+    if (fp == NULL) {
+        printf("Error creating staging.dat\n");
+        return ;
+    }
+    fclose(fp);
+
+    // Create undo.dat
+    fp = fopen(".minigit/undo.dat", "w");
+    if (fp == NULL) {
+        printf("Error creating undo.dat\n");
+        return ;
+    }
+    fclose(fp);
+
+    // Create HEAD
+    fp = fopen(".minigit/HEAD", "w");
+    if (fp == NULL) {
+        printf("Error creating HEAD\n");
+        return ;
+    }
+    else{
+        fprintf(fp, "main");
+    }
+    fclose(fp);
+
+    printf("initialized empty minigit repository!!\n");
+}
+
+void load_commits() {
+    // open .minigit/commits.dat for reading
+    // if file doesn't exist or is empty, just return
+
+    // loop: read one line at a time with fgets
+
+        // parse the line: id, parentId, timestamp, message
+        // allocate a new Commit node with calloc
+        // set node fields: id, parentId, timestamp, message
+        // set next and parent pointers to NULL (calloc already does this)
+
+        // if commitHead is NULL, this is the first node
+            // commitHead = commitTail = newNode
+        // else append to tail
+            // commitTail->next = newNode
+            // commitTail = newNode
+
+        // increment commitCount
+
+    // close the file
+    int id, parentId;
+    long time;
+    char message[100]; 
+    FILE *pFile = fopen(".minigit/commits.dat", "r");
+    if(pFile == NULL){
+        printf("Error opening the commits file.. please check the path!!");
+        return;
+    }
+    
+    while (fscanf(pFile, "%d|%d|%ld|%[^\n]", &id, &parentId, &time, message) == 4)
+    {
+        Commit *newNode = (Commit*)calloc(1, sizeof(Commit));
+        newNode->id = id;
+        newNode->parentId = parentId;
+        newNode->timestamp = time;
+        strcpy(newNode->message, message);
+        
+        newNode->parent = newNode->next = NULL;
+
+        if (commitHead == NULL)
+        {
+            commitHead = commitTail = newNode;
+        }
+        else{
+            commitTail->next = newNode;
+            commitTail = newNode;
+        }
+        commitCount++;   
+    }
+    
+    fclose(pFile);
+
+}
+
+void save_commits() {
+    // open .minigit/commits.dat for writing ("w")
+    // if file open fails, print error and return
+
+    // loop: walk the linked list from commitHead to NULL
+        // for each node, write: id|parentId|timestamp|message\n
+
+    // close the file
+    FILE *pFile = fopen(".minigit/commits.dat", "w");
+    if(pFile == NULL){
+        printf("Error opening the commits file... please check the path");
+        return;
+    }
+    Commit *currentNode = commitHead;
+    while (currentNode != NULL)
+    {
+        fprintf(pFile, "%d|%d|%ld|%s\n", currentNode->id,currentNode->parentId,currentNode->timestamp,currentNode->message);
+        currentNode = currentNode->next;
+    }
+    fclose(pFile);
 }
 
 int main() {
-    // create a test folder with a file first manually
-    // then call copy_dir
-    copy_dir(".minigit/snapshots/1", ".minigit/snapshots/2");
+    cmd_init();
+    load_commits();
+    printf("commitCount: %d\n", commitCount);
+    save_commits();
     printf("done\n");
     return 0;
 }
