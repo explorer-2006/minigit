@@ -1,9 +1,9 @@
 #include "minigit.h"
-#include <errno.h>
 
 Commit *commitHead = NULL;
 Commit *commitTail = NULL;
 Branch *branchHead = NULL;
+Branch *branchTail = NULL;
 char currentBranch[30] = "main";
 int commitCount = 0;
 
@@ -126,10 +126,6 @@ void cmd_init() {
         printf("some error occured in creating snapshots folder!!\n");
         return;
     }
-    else{
-        printf("snapshots folder created successfully\n");
-    }
-
     FILE *fp;
 
     // Create commits.dat
@@ -199,20 +195,19 @@ void load_commits() {
 
     // close the file
     int id, parentId;
-    long time;
+    long timestamp;
     char message[100]; 
     FILE *pFile = fopen(".minigit/commits.dat", "r");
     if(pFile == NULL){
-        printf("Error opening the commits file.. please check the path!!");
         return;
     }
     
-    while (fscanf(pFile, "%d|%d|%ld|%[^\n]", &id, &parentId, &time, message) == 4)
+    while (fscanf(pFile, "%d|%d|%ld|%[^\n]", &id, &parentId, &timestamp, message) == 4)
     {
         Commit *newNode = (Commit*)calloc(1, sizeof(Commit));
         newNode->id = id;
         newNode->parentId = parentId;
-        newNode->timestamp = time;
+        newNode->timestamp = timestamp;
         strcpy(newNode->message, message);
         
         newNode->parent = newNode->next = NULL;
@@ -227,6 +222,22 @@ void load_commits() {
         }
         commitCount++;   
     }
+    // second pass to reconnect parent pointers
+    Commit *curr = commitHead;
+    while (curr != NULL) {
+        if (curr->parentId != 0) {
+            // find the node with id == parentId
+            Commit *search = commitHead;
+            while (search != NULL) {
+                if (search->id == curr->parentId) {
+                    curr->parent = search;
+                    break;
+                }
+                search = search->next;
+            }
+        }
+        curr = curr->next;
+    }
     
     fclose(pFile);
 
@@ -237,7 +248,7 @@ void save_commits() {
     // if file open fails, print error and return
 
     // loop: walk the linked list from commitHead to NULL
-        // for each node, write: id|parentId|timestamp|message\n
+        // for each node, write: id|parentId|timestampstamp|message\n
 
     // close the file
     FILE *pFile = fopen(".minigit/commits.dat", "w");
@@ -252,6 +263,221 @@ void save_commits() {
         currentNode = currentNode->next;
     }
     fclose(pFile);
+}
+
+void load_branches() {
+    // open .minigit/branches.dat for reading
+    // if file doesn't exist or is empty, just return
+
+    // loop: read one line at a time
+        // parse: name, headId
+        // allocate new Branch node with calloc
+        // set node fields: name, headId
+        // append to branchHead list
+
+    // close the file
+
+    FILE *pFile = fopen(".minigit/branches.dat", "r");
+    if(pFile == NULL){
+        return;
+    }
+
+    int headId;
+    char name[30]; 
+    
+    while (fscanf(pFile, "%[^|]|%d", name, &headId) == 2)
+    {
+        Branch *newNode= (Branch*)calloc(1, sizeof(Branch));
+        newNode->headId = headId;
+        strcpy(newNode->name, name);
+        newNode->next = NULL;
+
+        if(branchHead == NULL){
+            branchHead = branchTail= newNode;
+        }
+        else{
+            branchTail->next = newNode;
+            branchTail = newNode;
+        }
+    }
+    
+    fclose(pFile);    
+}
+
+void save_branches() {
+    // open .minigit/branches.dat for writing
+    // if file open fails, print error and return
+
+    // loop: walk branch list from branchHead to NULL
+        // write: name|headId\n
+
+    // close the file
+
+    FILE *pFile = fopen(".minigit/branches.dat", "w");
+    if(pFile == NULL){
+        printf("Error writing the branches file... please check the path");
+        return;
+    }
+    Branch *currentNode = branchHead;
+    while (currentNode != NULL)
+    {
+        fprintf(pFile, "%s|%d\n", currentNode->name, currentNode->headId);
+        currentNode = currentNode->next;
+    }
+    fclose(pFile);
+}
+
+void load_head() {
+    // open .minigit/HEAD for reading
+    // if file doesn't exist, just return
+    // read the branch name into currentBranch
+    // close the file
+
+    FILE *pFile = fopen(".minigit/HEAD", "r");
+    if(pFile == NULL){
+        return;
+    }
+
+    fscanf(pFile, "%s", currentBranch);
+    fclose(pFile);
+}
+
+void save_head() {
+    // open .minigit/HEAD for writing
+    // if file open fails, print error and return
+    // write currentBranch to the file
+    // close the file
+    FILE *pFile = fopen(".minigit/HEAD", "w");
+    if(pFile == NULL){
+        return;
+    }
+
+    fprintf(pFile, "%s", currentBranch);
+    fclose(pFile);
+}
+
+void push_undo(const char *branch, int previousHeadId) {
+    // open .minigit/undo.dat in append mode ("a")
+    // if file open fails, print error and return
+    // write: branch|previousHeadId\n
+    // close the file
+    FILE *pFile = fopen(".minigit/undo.dat", "a");
+    if(pFile == NULL){
+        return;
+    }
+
+    fprintf(pFile, "%s|%d\n",branch, previousHeadId);
+    fclose(pFile);
+}
+
+int pop_undo(char *branchOut) {
+    // open .minigit/undo.dat for reading
+    // if file open fails or is empty, return -1
+    // if no lines, return -1
+
+    // parse the last line: branch|previousHeadId
+    // store branch name into branchOut
+    // store previousHeadId
+
+    // rewrite the file with all lines except the last one
+
+    // return previousHeadId
+
+    typedef struct commitNodes 
+    {
+        char branchName[30];
+        int previousHeadId;
+        struct commitNodes *next;
+    }commitNodes;
+
+    commitNodes *headCommit = NULL;
+    commitNodes *tailCommit = NULL;
+    commitNodes *temp;
+    char branchName[30];
+    int previousHeadId;
+
+    FILE *pFile = fopen(".minigit/undo.dat", "r");
+    if(pFile == NULL){
+        return -1;
+    }
+    
+    while (fscanf(pFile, "%[^|]|%d", branchName, &previousHeadId) == 2){
+        commitNodes *newNode = (commitNodes*)calloc(1, sizeof(commitNodes));
+        strcpy(newNode->branchName, branchName);
+        newNode->previousHeadId = previousHeadId;
+        newNode->next = NULL;
+
+        if(headCommit == NULL){
+            headCommit = tailCommit = newNode;
+        }
+        else{
+            tailCommit->next = newNode;
+            tailCommit = newNode;
+        }
+    }
+
+    if(headCommit == NULL){
+        fclose(pFile);
+        return -1;
+    }
+    fclose(pFile);
+
+    strcpy(branchOut, tailCommit->branchName);
+    int returnValue = tailCommit->previousHeadId;
+ 
+    pFile = fopen(".minigit/undo.dat", "w");
+    temp = headCommit;
+    while(temp != tailCommit){
+        fprintf(pFile, "%s|%d\n",temp->branchName,temp->previousHeadId);
+        temp = temp->next;
+    }
+
+    fclose(pFile);
+
+    temp = headCommit;
+    while (temp != NULL) {
+        commitNodes *next = temp->next;
+        free(temp);
+        temp = next;
+    }
+    
+    return returnValue;
+}
+
+void cmd_add(const char *file) {
+    // check if the file actually exists (try fopen for reading)
+    // if it doesn't exist, print error and return
+
+    // open .minigit/staging.dat in append mode
+    // write the filename on a new line
+    // close the file
+
+    // print "added <file>"
+}
+
+void cmd_commit(const char *msg) {
+    // load staging.dat — read all staged filenames into an array
+    // if staging is empty, print "nothing to commit" and return
+
+    // determine new commit id: commitCount + 1 (or max id + 1)
+    // find the current branch's head commit id (walk branchHead list)
+
+    // create snapshot folder: .minigit/snapshots/<newId>/
+    // if previous commit exists, copy_dir from previous snapshot into new snapshot
+    // then copy each staged file into the new snapshot folder
+
+    // create new Commit node, set id, parentId, timestamp (time(NULL)), message
+    // append to commit linked list
+    // save_commits()
+
+    // update current branch's headId to newId
+    // save_branches()
+
+    // push_undo(currentBranch, previousHeadId)
+
+    // clear staging.dat (open in "w" mode and close immediately)
+
+    // print "committed: <msg>"
 }
 
 int main() {
