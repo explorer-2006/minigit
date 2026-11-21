@@ -1,5 +1,5 @@
 #include "minigit.h"
-#include <errno.h>
+#include<errno.h>
 
 Commit *commitHead = NULL;
 Commit *commitTail = NULL;
@@ -116,67 +116,81 @@ void cmd_init() {
 
     // print "initialized empty MiniGit repository"
 
+
+
+    // Create the main .minigit directory
     int retval = MKDIR(".minigit");
-    if(retval == -1){
-        printf("already initialized!!\n");
+
+    if (retval == -1) {
+        printf("MiniGit repository already initialized!\n");
         return;
     }
-    int retvalInternal = MKDIR(".minigit/snapshots");
-    if(retvalInternal == -1){
-        printf("some error occured in creating snapshots folder!!\n");
+
+    // Create snapshots directory
+    if (MKDIR(".minigit/snapshots") == -1) {
+        printf("Error creating snapshots directory!\n");
         return;
     }
-    else{
-        printf("snapshots folder created successfully\n");
-    }
+
+    // Create required metadata files
+    const char *files[] = {
+        ".minigit/commits.dat",
+        ".minigit/branches.dat",
+        ".minigit/staging.dat",
+        ".minigit/undo.dat"
+    };
 
     FILE *fp;
 
-    // Create commits.dat
-    fp = fopen(".minigit/commits.dat", "w");
-    if (fp == NULL) {
-        printf("Error creating commits.dat\n");
-        return ;
-    }
-    fclose(fp);
+    for (int i = 0; i < 4; i++) {
+        fp = fopen(files[i], "w");
 
-    // Create branches.dat
-    fp = fopen(".minigit/branches.dat", "w");
-    if (fp == NULL) {
-        printf("Error creating branches.dat\n");
-        return ;
-    }
-    fclose(fp);
+        if (fp == NULL) {
+            printf("Error creating %s\n", files[i]);
+            return;
+        }
 
-    // Create staging.dat
-    fp = fopen(".minigit/staging.dat", "w");
-    if (fp == NULL) {
-        printf("Error creating staging.dat\n");
-        return ;
+        fclose(fp);
     }
-    fclose(fp);
 
-    // Create undo.dat
-    fp = fopen(".minigit/undo.dat", "w");
-    if (fp == NULL) {
-        printf("Error creating undo.dat\n");
-        return ;
-    }
-    fclose(fp);
-
-    // Create HEAD
+    // Initialize HEAD with main branch
     fp = fopen(".minigit/HEAD", "w");
+
     if (fp == NULL) {
-        printf("Error creating HEAD\n");
-        return ;
+        printf("Error creating HEAD file!\n");
+        return;
     }
-    else{
-        fprintf(fp, "main");
-    }
+
+    fprintf(fp, "main\n");
     fclose(fp);
 
-    printf("initialized empty minigit repository!!\n");
+    // Initialize global commit variables
+    commitHead = NULL;
+    commitTail = NULL;
+    commitCount = 0;
+
+    // Initialize default main branch
+    Branch *newBranch = (Branch *)calloc(1, sizeof(Branch));
+
+    if (newBranch == NULL) {
+        printf("Memory allocation failed!\n");
+        return;
+    }
+
+    strcpy(newBranch->name, "main");
+    newBranch->headId = -1;
+    newBranch->next = NULL;
+
+    branchHead = newBranch;
+
+    strcpy(currentBranch, "main");
+
+    // Save initial branch information
+    save_branches();
+
+    printf("Initialized empty MiniGit repository!\n");
 }
+
 
 void load_commits() {
     // open .minigit/commits.dat for reading
