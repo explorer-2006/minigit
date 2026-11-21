@@ -472,7 +472,36 @@ void cmd_add(const char *file) {
     // close the file
 
     // print "added <file>"
+
+    // Check whether the file exists
+
+
+    FILE *pFile = fopen(file, "rb");
+
+    if (pFile == NULL) {
+        printf("Error: file '%s' does not exist!\n", file);
+        return;
+    }
+
+    fclose(pFile);
+
+    // Open staging.dat in append mode
+    pFile = fopen(".minigit/staging.dat", "a");
+
+    if (pFile == NULL) {
+        printf("Error opening staging file!\n");
+        return;
+    }
+
+    // Write the filename into staging.dat
+    fprintf(pFile, "%s\n", file);
+
+    fclose(pFile);
+
+    // Display success message
+    printf("Added '%s' to staging area.\n", file);
 }
+
 
 void cmd_commit(const char *msg) {
     // load staging.dat — read all staged filenames into an array
@@ -497,7 +526,217 @@ void cmd_commit(const char *msg) {
     // clear staging.dat (open in "w" mode and close immediately)
 
     // print "committed: <msg>"
+
+
+    // Step 1: Read all staged filenames
+    char stagedFiles[100][256];
+    int fileCount = 0;
+
+    FILE *pFile = fopen(".minigit/staging.dat", "r");
+
+    if (pFile == NULL) {
+        printf("Nothing to commit!\n");
+        return;
+    }
+
+    while (fileCount < 100 &&
+           fgets(stagedFiles[fileCount], sizeof(stagedFiles[fileCount]), pFile) != NULL) {
+
+        // Remove newline character
+        stagedFiles[fileCount][strcspn(stagedFiles[fileCount], "\r\n")] = '\0';
+
+        if (stagedFiles[fileCount][0] != '\0') {
+            fileCount++;
+        }
+    }
+
+    fclose(pFile);
+
+    // Check whether staging area is empty
+    if (fileCount == 0) {
+        printf("Nothing to commit!\n");
+        return;
+    }
+
+    // Step 2: Determine the new commit ID
+    int newId = 1;
+
+    Commit *tempCommit = commitHead;
+
+    while (tempCommit != NULL) {
+        if (tempCommit->id >= newId) {
+            newId = tempCommit->id + 1;
+        }
+
+        tempCommit = tempCommit->next;
+    }
+
+    // Step 3: Find the current branch
+    Branch *current = branchHead;
+
+    while (current != NULL && strcmp(current->name, currentBranch) != 0) {
+        current = current->next;
+    }
+
+    if (current == NULL) {
+        printf("Error: Current branch not found!\n");
+        return;
+    }
+
+    // Store the previous commit ID
+    int previousHeadId = current->headId;
+
+    // Step 4: Create snapshot directory
+    char snapshotPath[500];
+
+    sprintf(snapshotPath, ".minigit/snapshots/%d", newId);
+
+    if (MKDIR(snapshotPath) == -1) {
+        printf("Error creating snapshot directory!\n");
+        return;
+    }
+
+    // Step 5: Copy previous snapshot into the new snapshot
+    if (previousHeadId != -1) {
+
+        char previousSnapshot[500];
+
+        sprintf(previousSnapshot, ".minigit/snapshots/%d", previousHeadId);
+
+        copy_dir(previousSnapshot, snapshotPath);
+    }
+
+    // Step 6: Copy newly staged files into the snapshot
+    for (int i = 0; i < fileCount; i++) {
+
+        char destinationPath[500];
+
+        sprintf(destinationPath, "%s/%s", snapshotPath, stagedFiles[i]);
+
+        if (copy_file(stagedFiles[i], destinationPath) == 0) {
+            printf("Error copying file: %s\n", stagedFiles[i]);
+            return;
+        }
+    }
+
+    // Step 7: Create a new commit node
+    Commit *newCommit = (Commit *)calloc(1, sizeof(Commit));
+
+    if (newCommit == NULL) {
+        printf("Memory allocation failed!\n");
+        return;
+    }
+
+    newCommit->id = newId;
+    newCommit->parentId = previousHeadId;
+    newCommit->timestamp = time(NULL);
+
+    strncpy(newCommit->message, msg, sizeof(newCommit->message) - 1);
+
+    newCommit->next = NULL;
+
+    // Connect parent pointer
+    newCommit->parent = NULL;
+
+    if (previousHeadId != -1) {
+        Commit *search = commitHead;
+
+        while (search != NULL) {
+            if (search->id == previousHeadId) {
+                newCommit->parent = search;
+                break;
+            }
+
+            search = search->next;
+        }
+    }
+
+    // Step 8: Append commit to linked list
+    if (commitHead == NULL) {
+        commitHead = commitTail = newCommit;
+    }
+    else {
+        commitTail->next = newCommit;
+        commitTail = newCommit;
+    }
+
+    commitCount++;
+
+    // Save commit information
+    save_commits();
+
+    // Step 9: Store undo information
+    push_undo(currentBranch, previousHeadId);
+
+    // Step 10: Update current branch HEAD
+    current->headId = newId;
+
+    save_branches();
+
+    // Step 11: Clear staging.dat
+    pFile = fopen(".minigit/staging.dat", "w");
+
+    if (pFile != NULL) {
+        fclose(pFile);
+    }
+
+    // Step 12: Display success message
+    printf("Committed: %s\n", msg);
 }
+
+void cmd_log() {
+
+    // Find the current branch
+    Branch *current = branchHead;
+
+    while (current != NULL && strcmp(current->name, currentBranch) != 0) {
+        current = current->next;
+    }
+
+    // Check whether the branch exists
+    if (current == NULL) {
+        printf("Error: Current branch not found!\n");
+        return;
+    }
+
+    // Get the latest commit of the current branch
+    int headId = current->headId;
+
+    if (headId == -1) {
+        printf("No commits yet.\n");
+        return;
+    }
+
+    // Find the latest commit in the commit linked list
+    Commit *temp = commitHead;
+
+    while (temp != NULL && temp->id != headId) {
+        temp = temp->next;
+    }
+
+    if (temp == NULL) {
+        printf("Error: Commit not found!\n");
+        return;
+    }
+
+    // Traverse backwards using parent pointers
+    while (temp != NULL) {
+
+        printf("\n----------------------------------\n");
+
+        printf("Commit ID : %d\n", temp->id);
+        printf("Parent ID : %d\n", temp->parentId);
+
+        printf("Date      : %s", ctime(&temp->timestamp));
+
+        printf("Message   : %s\n", temp->message);
+
+        temp = temp->parent;
+    }
+
+    printf("----------------------------------\n");
+}
+
 
 int main() {
     cmd_init();
