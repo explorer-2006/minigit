@@ -747,204 +747,229 @@ void cmd_log() {
     printf("----------------------------------\n");
 }
 
-// ---------- branch commands ----------
-
-// returns 1 if the branch name is usable: not empty, short enough, no spaces or '|'
-static int is_valid_branch_name(const char *name) {
-    size_t len = strlen(name);
-    if (len == 0 || len >= 30) return 0;
-    if (strpbrk(name, "| \t") != NULL) return 0;
-    return 1;
-}
+//  BRANCH 
 
 void cmd_branch(const char *name) {
-    load_branches();
-    load_head();
 
-    if (!is_valid_branch_name(name)) {
-        printf("Invalid branch name. Use 1-29 characters, no spaces or '|'.\n");
+    load_branches();  //reads .minigit/branches.dat into the branchHead linked list
+    load_head();    //reads .minigit/HEAD into currentBranch, so we know which branch we're on
+
+    // 1. Check the branch name
+
+    // it can't be empty,30 or more characters, or contain a space or '|'
+
+    if (strlen(name) == 0 || strlen(name) >= 30 || strchr(name, '|') != NULL || strchr(name, ' ') != NULL) {
+        printf("Error: invalid branch name!\n");
         return;
     }
 
-    // one pass: make sure the name is free, find the current branch, remember the last node
-    Branch *current = NULL;
-    Branch *last = NULL;
+    // 2. Walk the branch list
 
-    for (Branch *b = branchHead; b != NULL; b = b->next) {
-        if (strcmp(b->name, name) == 0) {
-            printf("Branch '%s' already exists.\n", name);
+    Branch *current = NULL; //current will point to the branch we're on
+    Branch *last = NULL;    //last will end up at the final node of the list
+    Branch *temp = branchHead; //Starts a pointer at the first branch, so we can walk the list
+
+    while (temp != NULL) {   //loops over every branch until the end of the list
+        if (strcmp(temp->name, name) == 0) { //checks whether this branch already has the requested name. If it does, it prints an error and returns
+            printf("Error: branch '%s' already exists!\n", name);
             return;
         }
-        if (strcmp(b->name, currentBranch) == 0) {
-            current = b;
+
+        if (strcmp(temp->name, currentBranch) == 0) {   //saves the pointer to the current branch when we find it
+            current = temp;
         }
-        last = b;
+
+        last = temp;    //after the loop it points to the last branch
+        temp = temp->next; //moves to the next branch
     }
 
-    if (current == NULL) {
+    if (current == NULL) {  //protects against a broken HEAD file
         printf("Error: Current branch not found!\n");
         return;
     }
 
-    // the new branch starts at the same commit the current branch is on
-    Branch *newBranch = (Branch *)calloc(1, sizeof(Branch));
-    if (newBranch == NULL) {
+    //3. Create the new branch
+
+    Branch *newBranch = (Branch *)calloc(1, sizeof(Branch));  // with calloc, next starts as NULL, so the list ends correctly even before we set it
+
+    if (newBranch == NULL) {  //checks that the memory was actually allocated
         printf("Memory allocation failed!\n");
         return;
     }
 
-    strcpy(newBranch->name, name);
-    newBranch->headId = current->headId;
-    newBranch->next = NULL;
+    strcpy(newBranch->name, name); //copies the new name into the node
+    newBranch->headId = current->headId;  //makes the new branch point to the same commit as the current branch
+    newBranch->next = NULL; //marks the new node as the end of the list
 
-    if (last == NULL) {
+    // 4. Add it to the end of the list
+    if (last == NULL) {  //since the list was empty , the new node becomes the first branch
         branchHead = newBranch;
-    } else {
+    } else {                   // links the new node after the last one
         last->next = newBranch;
     }
 
-    save_branches();
+    // 5. Save and print a message
+    save_branches();   //writes the whole list back to branches.dat
 
-    if (newBranch->headId == -1) {
+    if (newBranch->headId == -1) {   //-1 means the branch has no commits yet , so the message leaves out the commit number
         printf("Created branch '%s' (no commits yet).\n", name);
     } else {
         printf("Created branch '%s' at commit %d.\n", name, newBranch->headId);
     }
 }
 
+//  SWITCH
 void cmd_switch(const char *name) {
-    load_branches();
-    load_head();
+    load_branches();         // reads branches.dat into the linked list starting at branchHead
+    load_head();             // reads HEAD into currentBranch, so the function knows which branch you're on
 
-    if (strcmp(name, currentBranch) == 0) {
+    if (strcmp(name, currentBranch) == 0) {  //stops if we're already on that branch (two strings match)
         printf("Already on branch '%s'.\n", name);
         return;
     }
 
-    Branch *target = NULL;
-    for (Branch *b = branchHead; b != NULL; b = b->next) {
-        if (strcmp(b->name, name) == 0) {
-            target = b;
+    //1. Find the target branch in the linked list
+
+    Branch *target = NULL;    //starts with no branch found , if the search fails it stays NULL
+    for (Branch *b = branchHead; b != NULL; b = b->next) {  //walks the list one branch at a time
+        if (strcmp(b->name, name) == 0) {  //checks whether this branch has the name you asked for
+            target = b; //remembers the matching branch
             break;
         }
     }
 
-    if (target == NULL) {
+    if (target == NULL) {   //the branch doesn't exist,so the function prints and error and returns
         printf("Error: branch '%s' does not exist.\n", name);
         return;
     }
 
-    // don't leave staged files behind on the wrong branch
-    FILE *pFile = fopen(".minigit/staging.dat", "r");
-    if (pFile != NULL) {
-        int hasStaged = (fgetc(pFile) != EOF);
+    //2. Check for staged changes
+
+    FILE *pFile = fopen(".minigit/staging.dat", "r"); //opens the staging file for reading
+    if (pFile != NULL) {   //fopen returns NULL if the file can't be opened
+        int hasStaged = (fgetc(pFile) != EOF);  //if the file is empty it returns EOF, so hasStaged is 0,if naything is there it's 1
         fclose(pFile);
 
-        if (hasStaged) {
+        if (hasStaged) {  //if there are staged files ,prints a message and returns
             printf("Cannot switch: you have staged changes. Commit or revert them first.\n");
             return;
         }
     }
 
-    // bring the target branch's files back into the working folder
-    if (target->headId != -1) {
+    //3. Restoring files
+
+    if (target->headId != -1) {     //-1 means the branch has no commits , so nothing to restore
         char snapshotPath[500];
-        sprintf(snapshotPath, ".minigit/snapshots/%d", target->headId);
-        copy_dir(snapshotPath, ".");
+        sprintf(snapshotPath, ".minigit/snapshots/%d", target->headId); //builds the path to the snapshot for the target's latest commit
+        copy_dir(snapshotPath, "."); //copies every file from that snapshot into the current folder
     }
 
-    strcpy(currentBranch, name);
-    save_head();
+    strcpy(currentBranch, name);  //updates the current branch name in memory
+    save_head();  //writes the new name to HEAD
 
     printf("Switched to branch '%s'.\n", name);
 }
 
+//  BRANCHES
 void cmd_branches() {
-    load_branches();
-    load_head();
+    
+    load_branches();  //reads branches.dat into the linked list starting at branchHead
+    load_head();     //reads HEAD into currentBranch, so the function knows which branch is active
 
-    if (branchHead == NULL) {
+    if (branchHead == NULL) {   //branchHead is NULL when the list is empty, meaning no branches exist
         printf("No branches yet.\n");
         return;
     }
 
-    printf("\n");
-    for (Branch *b = branchHead; b != NULL; b = b->next) {
-        char marker = (strcmp(b->name, currentBranch) == 0) ? '*' : ' ';
+    Branch *temp = branchHead;   //starts a pointer at the first branch , temp is used so branchHead itself isn't moved
 
-        if (b->headId == -1) {
-            printf(" %c %-29s (no commits)\n", marker, b->name);
+    while (temp != NULL) {     //repeats for each branch until the end of the list
+        if (strcmp(temp->name, currentBranch) == 0) {   //strcmp returns 0 when two strings match, so this checks whether this branch is the active one
+            printf("* %s (commit %d)\n", temp->name, temp->headId);  //prints the active branch with a * in front, its name, and the commit it points to
         } else {
-            printf(" %c %-29s head: commit %d\n", marker, b->name, b->headId);
+            printf("  %s (commit %d)\n", temp->name, temp->headId);  //prints the same line with two spaces instead of *, so the names line up
         }
+
+        temp = temp->next;   //moves to the next branch in the list
     }
-    printf("\n");
 }
 
-// ---------- search ----------
-
-// plain linear scan, ignores upper/lower case
-static int contains_ignore_case(const char *text, const char *word) {
-    size_t n = strlen(word);
-    if (n == 0) return 1;
-
-    for (size_t i = 0; text[i] != '\0'; i++) {
-        size_t j = 0;
-        while (j < n && text[i + j] != '\0' &&
-               tolower((unsigned char)text[i + j]) == tolower((unsigned char)word[j])) {
-            j++;
-        }
-        if (j == n) return 1;
-    }
-    return 0;
-}
-
-static void print_search_hit(const Commit *c) {
-    char when[64];
-    time_t t = c->timestamp;
-    strcpy(when, ctime(&t));
-    when[strcspn(when, "\r\n")] = '\0';
-
-    printf("\n[%d] %s\n", c->id, when);
-    printf("    %s\n", c->message);
-}
+//  SEARCH 
 
 void cmd_search(const char *keyword) {
-    load_commits();
 
-    if (keyword == NULL || strlen(keyword) == 0) {
-        printf("Usage: minigit search <keyword or commit id>\n");
+    load_commits();   //reads commits.dat into the linked list starting at commitHead
+
+    if (strlen(keyword) == 0) {  //checks whether anything was typed
+        printf("Usage: search <keyword or commit id>\n");
         return;
     }
 
-    // all digits -> look up by id
-    if (strspn(keyword, "0123456789") == strlen(keyword)) {
-        int wantedId = atoi(keyword);
+    int isNumber = 1; //assuming the keyword is a number
 
-        for (Commit *c = commitHead; c != NULL; c = c->next) {
-            if (c->id == wantedId) {
-                print_search_hit(c);
+    for (int i = 0; keyword[i] != '\0'; i++) {  //goes through the keyword one character at a time
+        if (keyword[i] < '0' || keyword[i] > '9') {  //checks whether this character is outside the range of digits
+            isNumber = 0;  //if non-digit is found record that keyword and stop checking
+            break;
+        }
+    }
+
+    if (isNumber) {  //runs the id search only when every character was a digit
+        int wantedId = atoi(keyword); //converts the text to a number,
+        Commit *temp = commitHead;  //starts a pointer at the first commit
+
+        while (temp != NULL) {
+            if (temp->id == wantedId) {  //checks whether this commit has the id you asked for
+                time_t when = temp->timestamp;  //copies the timestamp into a time_t variable
+                printf("Commit ID : %d\n", temp->id);
+                printf("Date      : %s", ctime(&when));
+                printf("Message   : %s\n", temp->message);
                 return;
             }
+            temp = temp->next;  //moves to the next commit
         }
 
         printf("No commit with id %d.\n", wantedId);
         return;
     }
 
-    // otherwise scan every commit message
-    int matches = 0;
-    for (Commit *c = commitHead; c != NULL; c = c->next) {
-        if (contains_ignore_case(c->message, keyword)) {
-            print_search_hit(c);
-            matches++;
-        }
+    char lowerKeyword[100];   //lowercase copy of the keyword
+    strncpy(lowerKeyword, keyword, 99);  //copies at most 99 characters
+    lowerKeyword[99] = '\0';
+
+    for (int i = 0; lowerKeyword[i] != '\0'; i++) {  //changes each character to lowercase, so the search ignores case
+        lowerKeyword[i] = tolower(lowerKeyword[i]);
     }
 
+    int matches = 0;  //counts how many commits match
+    Commit *temp = commitHead;
+
+    while (temp != NULL) {
+    
+        char lowerMessage[100];  //a lowercase copy of the current commit's message
+        strncpy(lowerMessage, temp->message, 99); //copy the message and lowercase it, the same way the keyword was handled
+        lowerMessage[99] = '\0';
+
+        for (int i = 0; lowerMessage[i] != '\0'; i++) {
+            lowerMessage[i] = tolower(lowerMessage[i]);
+        }
+
+        if (strstr(lowerMessage, lowerKeyword) != NULL) {  //looks for the keyword anywhere inside the message
+            time_t when = temp->timestamp;
+            printf("Commit ID : %d\n", temp->id);
+            printf("Date      : %s", ctime(&when));
+            printf("Message   : %s\n\n", temp->message);
+            matches++;
+        }
+
+        temp = temp->next; //moves to the next commit
+    }
+
+  
     if (matches == 0) {
         printf("No commits matched '%s'.\n", keyword);
     } else {
-        printf("\n%d commit(s) matched '%s'.\n", matches, keyword);
+        printf("%d commit(s) matched '%s'.\n", matches, keyword);
     }
 }
 
