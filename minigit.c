@@ -7,6 +7,8 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <dirent.h>
+#include <errno.h>
+#include <ctype.h>
 
 Commit *commitHead = NULL;
 Commit *commitTail = NULL;
@@ -311,7 +313,7 @@ void load_branches() {
     int headId;
     char name[30]; 
     
-    while (fscanf(pFile, "%[^|]|%d", name, &headId) == 2)
+    while (fscanf(pFile, " %29[^|]|%d", name, &headId) == 2)
     {
         Branch *newNode= (Branch*)calloc(1, sizeof(Branch));
         newNode->headId = headId;
@@ -734,7 +736,8 @@ void cmd_log() {
         printf("Commit ID : %d\n", temp->id);
         printf("Parent ID : %d\n", temp->parentId);
 
-        printf("Date      : %s", ctime(&temp->timestamp));
+        time_t when = temp->timestamp;
+        printf("Date      : %s", ctime(&when));
 
         printf("Message   : %s\n", temp->message);
 
@@ -744,6 +747,206 @@ void cmd_log() {
     printf("----------------------------------\n");
 }
 
+// ---------- branch commands ----------
+
+// returns 1 if the branch name is usable: not empty, short enough, no spaces or '|'
+static int is_valid_branch_name(const char *name) {
+    size_t len = strlen(name);
+    if (len == 0 || len >= 30) return 0;
+    if (strpbrk(name, "| \t") != NULL) return 0;
+    return 1;
+}
+
+void cmd_branch(const char *name) {
+    load_branches();
+    load_head();
+
+    if (!is_valid_branch_name(name)) {
+        printf("Invalid branch name. Use 1-29 characters, no spaces or '|'.\n");
+        return;
+    }
+
+    // one pass: make sure the name is free, find the current branch, remember the last node
+    Branch *current = NULL;
+    Branch *last = NULL;
+
+    for (Branch *b = branchHead; b != NULL; b = b->next) {
+        if (strcmp(b->name, name) == 0) {
+            printf("Branch '%s' already exists.\n", name);
+            return;
+        }
+        if (strcmp(b->name, currentBranch) == 0) {
+            current = b;
+        }
+        last = b;
+    }
+
+    if (current == NULL) {
+        printf("Error: Current branch not found!\n");
+        return;
+    }
+
+    // the new branch starts at the same commit the current branch is on
+    Branch *newBranch = (Branch *)calloc(1, sizeof(Branch));
+    if (newBranch == NULL) {
+        printf("Memory allocation failed!\n");
+        return;
+    }
+
+    strcpy(newBranch->name, name);
+    newBranch->headId = current->headId;
+    newBranch->next = NULL;
+
+    if (last == NULL) {
+        branchHead = newBranch;
+    } else {
+        last->next = newBranch;
+    }
+
+    save_branches();
+
+    if (newBranch->headId == -1) {
+        printf("Created branch '%s' (no commits yet).\n", name);
+    } else {
+        printf("Created branch '%s' at commit %d.\n", name, newBranch->headId);
+    }
+}
+
+void cmd_switch(const char *name) {
+    load_branches();
+    load_head();
+
+    if (strcmp(name, currentBranch) == 0) {
+        printf("Already on branch '%s'.\n", name);
+        return;
+    }
+
+    Branch *target = NULL;
+    for (Branch *b = branchHead; b != NULL; b = b->next) {
+        if (strcmp(b->name, name) == 0) {
+            target = b;
+            break;
+        }
+    }
+
+    if (target == NULL) {
+        printf("Error: branch '%s' does not exist.\n", name);
+        return;
+    }
+
+    // don't leave staged files behind on the wrong branch
+    FILE *pFile = fopen(".minigit/staging.dat", "r");
+    if (pFile != NULL) {
+        int hasStaged = (fgetc(pFile) != EOF);
+        fclose(pFile);
+
+        if (hasStaged) {
+            printf("Cannot switch: you have staged changes. Commit or revert them first.\n");
+            return;
+        }
+    }
+
+    // bring the target branch's files back into the working folder
+    if (target->headId != -1) {
+        char snapshotPath[500];
+        sprintf(snapshotPath, ".minigit/snapshots/%d", target->headId);
+        copy_dir(snapshotPath, ".");
+    }
+
+    strcpy(currentBranch, name);
+    save_head();
+
+    printf("Switched to branch '%s'.\n", name);
+}
+
+void cmd_branches() {
+    load_branches();
+    load_head();
+
+    if (branchHead == NULL) {
+        printf("No branches yet.\n");
+        return;
+    }
+
+    printf("\n");
+    for (Branch *b = branchHead; b != NULL; b = b->next) {
+        char marker = (strcmp(b->name, currentBranch) == 0) ? '*' : ' ';
+
+        if (b->headId == -1) {
+            printf(" %c %-29s (no commits)\n", marker, b->name);
+        } else {
+            printf(" %c %-29s head: commit %d\n", marker, b->name, b->headId);
+        }
+    }
+    printf("\n");
+}
+
+// ---------- search ----------
+
+// plain linear scan, ignores upper/lower case
+static int contains_ignore_case(const char *text, const char *word) {
+    size_t n = strlen(word);
+    if (n == 0) return 1;
+
+    for (size_t i = 0; text[i] != '\0'; i++) {
+        size_t j = 0;
+        while (j < n && text[i + j] != '\0' &&
+               tolower((unsigned char)text[i + j]) == tolower((unsigned char)word[j])) {
+            j++;
+        }
+        if (j == n) return 1;
+    }
+    return 0;
+}
+
+static void print_search_hit(const Commit *c) {
+    char when[64];
+    time_t t = c->timestamp;
+    strcpy(when, ctime(&t));
+    when[strcspn(when, "\r\n")] = '\0';
+
+    printf("\n[%d] %s\n", c->id, when);
+    printf("    %s\n", c->message);
+}
+
+void cmd_search(const char *keyword) {
+    load_commits();
+
+    if (keyword == NULL || strlen(keyword) == 0) {
+        printf("Usage: minigit search <keyword or commit id>\n");
+        return;
+    }
+
+    // all digits -> look up by id
+    if (strspn(keyword, "0123456789") == strlen(keyword)) {
+        int wantedId = atoi(keyword);
+
+        for (Commit *c = commitHead; c != NULL; c = c->next) {
+            if (c->id == wantedId) {
+                print_search_hit(c);
+                return;
+            }
+        }
+
+        printf("No commit with id %d.\n", wantedId);
+        return;
+    }
+
+    // otherwise scan every commit message
+    int matches = 0;
+    for (Commit *c = commitHead; c != NULL; c = c->next) {
+        if (contains_ignore_case(c->message, keyword)) {
+            print_search_hit(c);
+            matches++;
+        }
+    }
+
+    if (matches == 0) {
+        printf("No commits matched '%s'.\n", keyword);
+    } else {
+        printf("\n%d commit(s) matched '%s'.\n", matches, keyword);
+    }
+}
 
 int main() {
     cmd_init();
