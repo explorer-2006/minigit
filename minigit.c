@@ -253,7 +253,7 @@ void load_commits() {
     // second pass to reconnect parent pointers
     Commit *curr = commitHead;
     while (curr != NULL) {
-        if (curr->parentId != 0) {
+        if (curr->parentId != -1) {
             // find the node with id == parentId
             Commit *search = commitHead;
             while (search != NULL) {
@@ -268,7 +268,6 @@ void load_commits() {
     }
     
     fclose(pFile);
-
 }
 
 void save_commits() {
@@ -538,7 +537,7 @@ void cmd_commit(const char *msg) {
 
 
     // Step 1: Read all staged filenames
-    char stagedFiles[100][256];
+    char stagedFiles[100][100];
     int fileCount = 0;
 
     FILE *pFile = fopen(".minigit/staging.dat", "r");
@@ -596,7 +595,7 @@ void cmd_commit(const char *msg) {
     int previousHeadId = current->headId;
 
     // Step 4: Create snapshot directory
-    char snapshotPath[500];
+    char snapshotPath[1024];
 
     sprintf(snapshotPath, ".minigit/snapshots/%d", newId);
 
@@ -608,7 +607,7 @@ void cmd_commit(const char *msg) {
     // Step 5: Copy previous snapshot into the new snapshot
     if (previousHeadId != -1) {
 
-        char previousSnapshot[500];
+        char previousSnapshot[1024];
 
         sprintf(previousSnapshot, ".minigit/snapshots/%d", previousHeadId);
 
@@ -618,9 +617,9 @@ void cmd_commit(const char *msg) {
     // Step 6: Copy newly staged files into the snapshot
     for (int i = 0; i < fileCount; i++) {
 
-        char destinationPath[500];
+        char destinationPath[2048];
 
-        sprintf(destinationPath, "%s/%s", snapshotPath, stagedFiles[i]);
+        snprintf(destinationPath, sizeof(destinationPath), "%s/%s", snapshotPath, stagedFiles[i]);
 
         if (copy_file(stagedFiles[i], destinationPath) == 0) {
             printf("Error copying file: %s\n", stagedFiles[i]);
