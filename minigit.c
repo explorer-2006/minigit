@@ -652,6 +652,9 @@ void cmd_commit(const char *msg) {
 
     // print "committed: <msg>"
 
+    load_commits();
+    load_branches();
+    load_head();
 
     // Step 1: Read all staged filenames
     char stagedFiles[100][100];
@@ -811,6 +814,9 @@ void cmd_commit(const char *msg) {
 
 void cmd_log() {
 
+    load_commits();
+    load_branches();
+    load_head();
     // Find the current branch
     Branch *current = branchHead;
 
@@ -992,6 +998,7 @@ void cmd_branches() {
     load_branches();  //reads branches.dat into the linked list starting at branchHead
     load_head();     //reads HEAD into currentBranch, so the function knows which branch is active
 
+
     if (branchHead == NULL) {   //branchHead is NULL when the list is empty, meaning no branches exist
         printf("No branches yet.\n");
         return;
@@ -1089,11 +1096,111 @@ void cmd_search(const char *keyword) {
     }
 }
 
-int main() {
-    cmd_init();
-    load_commits();
-    printf("commitCount: %d\n", commitCount);
-    save_commits();
-    printf("done\n");
+int main(int argc, char *argv[])
+{
+    // minigit init
+    // minigit add <file>
+    // minigit commit "message"
+    // minigit log
+    // minigit diff <id1> <id2> <file>
+    // minigit revert <id> [--force]
+    // minigit undo
+    // minigit branch <name>
+    // minigit switch <name>
+    // minigit branches
+    // minigit search <keyword>
+
+    if (argc < 2)
+    {
+        printf("Usage: minigit <command> [args]\n");
+        return 1;
+    }
+
+    if (strcmp(argv[1], "init") == 0)
+    {
+        cmd_init();
+    }
+    else if (strcmp(argv[1], "add") == 0)
+    {
+        if (argc < 3)
+        {
+            printf("Usage: minigit add <file>\n");
+            return 1;
+        }
+        cmd_add(argv[2]);
+    }
+    else if (strcmp(argv[1], "commit") == 0)
+    {
+        if (argc < 3)
+        {
+            printf("Usage: minigit commit \"message\"\n");
+            return 1;
+        }
+        cmd_commit(argv[2]);
+    }
+    else if (strcmp(argv[1], "log") == 0)
+    {
+        cmd_log();
+    }
+    // else if (strcmp(argv[1], "diff") == 0)
+    // {
+    //     if (argc < 5)
+    //     {
+    //         printf("Usage: minigit diff <id1> <id2> <file>\n");
+    //         return 1;
+    //     }
+    //     cmd_diff(atoi(argv[2]), atoi(argv[3]), argv[4]);
+    // }
+    else if (strcmp(argv[1], "revert") == 0)
+    {
+        if (argc < 3)
+        {
+            printf("Usage: minigit revert <id> [--force]\n");
+            return 1;
+        }
+        int force = (argc >= 4 && strcmp(argv[3], "--force") == 0);
+        cmd_revert(atoi(argv[2]), force);
+    }
+    else if (strcmp(argv[1], "undo") == 0)
+    {
+        cmd_undo();
+    }
+    else if (strcmp(argv[1], "branch") == 0)
+    {
+        if (argc < 3)
+        {
+            printf("Usage: minigit branch <name>\n");
+            return 1;
+        }
+        cmd_branch(argv[2]);
+    }
+    else if (strcmp(argv[1], "switch") == 0)
+    {
+        if (argc < 3)
+        {
+            printf("Usage: minigit switch <name>\n");
+            return 1;
+        }
+        cmd_switch(argv[2]);
+    }
+    else if (strcmp(argv[1], "branches") == 0)
+    {
+        cmd_branches();
+    }
+    else if (strcmp(argv[1], "search") == 0)
+    {
+        if (argc < 3)
+        {
+            printf("Usage: minigit search <keyword>\n");
+            return 1;
+        }
+        cmd_search(argv[2]);
+    }
+    else
+    {
+        printf("Unknown command: %s\n", argv[1]);
+        return 1;
+    }
+
     return 0;
 }
