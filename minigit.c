@@ -222,6 +222,10 @@ void load_commits() {
         // increment commitCount
 
     // close the file
+    commitHead = NULL;
+    commitTail = NULL;
+    commitCount = 0;
+
     int id, parentId;
     long timestamp;
     char message[100]; 
@@ -303,6 +307,9 @@ void load_branches() {
         // append to branchHead list
 
     // close the file
+
+    branchHead = NULL;
+    branchTail = NULL;
 
     FILE *pFile = fopen(".minigit/branches.dat", "r");
     if(pFile == NULL){
@@ -398,17 +405,8 @@ void push_undo(const char *branch, int previousHeadId) {
 }
 
 int pop_undo(char *branchOut) {
-    // open .minigit/undo.dat for reading
-    // if file open fails or is empty, return -1
-    // if no lines, return -1
-
-    // parse the last line: branch|previousHeadId
-    // store branch name into branchOut
-    // store previousHeadId
-
-    // rewrite the file with all lines except the last one
-
-    // return previousHeadId
+    // reads undo.dat, pops the last entry, rewrites file without it
+    // fills branchOut with branch name, returns previousHeadId or -1
 
     typedef struct commitNodes 
     {
@@ -428,7 +426,7 @@ int pop_undo(char *branchOut) {
         return -1;
     }
     
-    while (fscanf(pFile, "%[^|]|%d", branchName, &previousHeadId) == 2){
+    while (fscanf(pFile, " %[^|]|%d", branchName, &previousHeadId) == 2){
         commitNodes *newNode = (commitNodes*)calloc(1, sizeof(commitNodes));
         strcpy(newNode->branchName, branchName);
         newNode->previousHeadId = previousHeadId;
@@ -469,6 +467,45 @@ int pop_undo(char *branchOut) {
     }
     
     return returnValue;
+}
+
+void cmd_undo() {
+    load_branches();
+    load_head();
+
+    char branchName[30];
+    int previousHeadId = pop_undo(branchName);
+
+    if(previousHeadId == -1){
+        printf("Nothing to undo.\n");
+        return;
+    }
+
+    if(strcmp(branchName, currentBranch) != 0){
+        printf("Last undo entry is for a different branch.\n");
+        return;
+    }
+
+    Branch *temp = branchHead;
+    int found = 0;
+
+    while (temp != NULL) {
+        if(strcmp(temp->name, branchName) == 0){
+            found = 1;
+            break;
+        }
+        temp = temp->next;
+    }
+
+    if(!found){
+        printf("Error: branch not found.\n");
+        return;
+    }
+
+    temp->headId = previousHeadId;
+    save_branches();
+
+    printf("Undo successful, now at commit %d.\n", previousHeadId);
 }
 
 void cmd_add(const char *file) {
