@@ -508,6 +508,86 @@ void cmd_undo() {
     printf("Undo successful, now at commit %d.\n", previousHeadId);
 }
 
+void cmd_revert(int id, int force) {
+    // load commits, branches, head
+
+    // find the commit with the given id in commitHead list
+    // if not found, print "commit <id> not found" and return
+
+    // if force == 0, check staging.dat
+        // if staging has content, print "staged changes exist, use --force" and return
+
+    // build snapshot path: .minigit/snapshots/<id>/
+    // copy_dir(snapshotPath, ".")
+
+    // find current branch in branchHead list
+    // set branch->headId = id
+    // save_branches()
+
+    // push_undo(currentBranch, previous headId)  // so you can undo the revert
+
+    // print "reverted to commit <id>"
+
+    load_commits();
+    load_branches();
+    load_head();
+    int found = 0;
+    char snapshotPath[1024];
+
+    Commit *temp;
+    temp = commitHead;
+
+    while (temp != NULL)
+    {
+        if(temp->id == id){
+            found = 1;
+            break;
+        }
+        temp = temp->next;
+    }
+
+    if(!found){
+        printf("commit <%d> not found", id);
+        return;
+    }
+
+    if(force == 0){
+        FILE *pFile = fopen(".minigit/staging.dat", "r");
+
+        if(pFile == NULL){
+            printf("error opening staging file");
+            return;
+        }
+
+        if(fgetc(pFile) != EOF){
+            printf("staged changes exist, use --force");
+            fclose(pFile);
+            return;
+        }
+        
+    }
+
+    sprintf(snapshotPath, ".minigit/snapshots/%d", id);
+        copy_dir(snapshotPath, ".");
+
+        Branch *tempBranch;
+        tempBranch = branchHead;
+
+        while (tempBranch != NULL) {
+            if (strcmp(tempBranch->name, currentBranch) == 0) {
+                int previousHeadId = tempBranch->headId; 
+                tempBranch->headId = id;
+                save_branches();
+                push_undo(currentBranch, previousHeadId);
+                break;
+            }
+            tempBranch = tempBranch->next;
+        }
+
+        printf("reverted to commit <%d>\n", id);
+    
+}
+
 void cmd_add(const char *file) {
     // check if the file actually exists (try fopen for reading)
     // if it doesn't exist, print error and return
