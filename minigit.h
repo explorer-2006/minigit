@@ -6,30 +6,39 @@
 #include <string.h>
 #include <time.h>
 
-#define MKDIR(p) _mkdir(p)
+#ifdef _WIN32
+    #include <direct.h>
+    #include <io.h>
+    #define MKDIR(p) _mkdir(p)
+#else
+    #include <sys/stat.h>
+    #include <dirent.h>
+    #define MKDIR(p) mkdir(p, 0755)
+#endif
 
 // required Structures 
 
-typedef struct Commit {
+typedef struct Commit{
     int id;
     int parentId;
     long timestamp;
     char message[100];
     struct Commit *parent;   // points to parent commit (history)
     struct Commit *next;     // points to next node (list traversal)
-} Commit;
+}Commit;
 
-typedef struct Branch {
+typedef struct Branch{
     char name[30];
     int headId;              // id of the latest commit on this branch
     struct Branch *next;     // next branch in the linked list
-} Branch;
+}Branch;
 
 // globals
 
 extern Commit *commitHead;        // head of the commit linked list
 extern Commit *commitTail;        // tail (for appending new nodes)
 extern Branch *branchHead;        // head of the branch linked list
+extern Branch *branchTail;
 extern char currentBranch[30];    // name of the current branch
 extern int commitCount;           // total number of commits
 
@@ -48,8 +57,8 @@ void load_head(); // reads HEAD file → sets currentBranch
 void save_head(); // writes currentBranch → HEAD file
 
 // undo stack
-void push_undo(int commitId); // adds a commit id to the top of the stack
-int  pop_undo(); // removes and returns the top id
+void push_undo(const char *branch, int previousHeadId);
+int pop_undo(char *branchOut);  // fills branchOut with branch name, returns previousHeadId, -1 if empty
 
 // commands
 void cmd_init();
