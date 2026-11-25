@@ -1096,6 +1096,112 @@ void cmd_search(const char *keyword) {
     }
 }
 
+void cmd_diff(int id1, int id2, const char *file) {
+    // build path to file in snapshot id1: .minigit/snapshots/<id1>/<file>
+    // build path to file in snapshot id2: .minigit/snapshots/<id2>/<file>
+
+    // open both files, if either fails print error and return
+
+    // read lines of file1 into array A, count = n
+    // read lines of file2 into array B, count = m
+
+    // close both files
+
+    // build LCS table c[n+1][m+1], initialize all to 0
+    // fill the table using the recurrence:
+        // for i = 1 to n:
+            // for j = 1 to m:
+                // if A[i-1] == B[j-1]: c[i][j] = 1 + c[i-1][j-1]
+                // else: c[i][j] = max(c[i][j-1], c[i-1][j])
+
+    // traceback to print the diff:
+        // start at i=n, j=m
+        // if A[i-1] == B[j-1]: print "  <line>", move i-1, j-1
+        // else if c[i-1][j] > c[i][j-1]: print "- <line>", move i-1
+        // else: print "+ <line>", move j-1
+
+        char snapshotPath1[1024];
+        char snapshotPath2[1024];
+        sprintf(snapshotPath1, ".minigit/snapshots/%d/%s", id1,file);
+        sprintf(snapshotPath2, ".minigit/snapshots/%d/%s", id2,file);
+
+        FILE *pFile1 = fopen(snapshotPath1, "r");
+        FILE *pFile2 = fopen(snapshotPath2, "r");
+
+        if(pFile1 == NULL){
+            printf("error opening the first file!!");
+            return;
+        }
+        else if (pFile2 == NULL){
+            printf("error opening the second file!!");
+            fclose(pFile1);
+            return;
+        }
+
+        char A[200][256];  // up to 200 lines, 256 chars each
+        char B[200][256];
+        int n = 0, m = 0;
+
+        while (n < 200 && fgets(A[n], sizeof(A[n]), pFile1) != NULL) {
+            A[n][strcspn(A[n], "\r\n")] = '\0';  // strip newline
+            n++;
+        }
+
+        while (m < 200 && fgets(B[m], sizeof(B[m]), pFile2) != NULL) {
+            B[m][strcspn(B[m], "\r\n")] = '\0';
+            m++;
+        }
+
+        fclose(pFile1);
+        fclose(pFile2);
+
+        int c[n+1][m+1];
+        memset(c, 0, sizeof(c));
+
+        for(int i = 1; i <= n; i++){
+            for(int j = 1; j <= m; j++){
+                if (strcmp(A[i-1], B[j-1]) == 0){
+                    c[i][j] = 1 + c[i-1][j-1];
+                }
+                else{
+                    c[i][j] = c[i][j-1] > c[i-1][j] ? c[i][j-1] : c[i-1][j];
+                }
+            }
+        }
+
+        char diff[400][260];  // stores diff lines
+        char prefix[400];     // stores '+', '-', or ' ' for each line
+        int diffCount = 0;
+
+        int i = n, j = m;
+        while (i > 0 || j > 0) {
+            if (i > 0 && j > 0 && strcmp(A[i-1], B[j-1]) == 0) {
+                strcpy(diff[diffCount], A[i-1]);
+                prefix[diffCount] = ' ';
+                i--;j--;
+            } 
+            else if (i > 0 && (j == 0 || c[i-1][j] > c[i][j-1])) {
+                strcpy(diff[diffCount], A[i-1]);
+                prefix[diffCount] = '-';
+                i--;
+            } 
+            else {
+                strcpy(diff[diffCount], B[j-1]);
+                prefix[diffCount] = '+';
+                j--;
+            }
+            diffCount++;
+        }
+
+        // print in reverse
+        for (int k = diffCount - 1; k >= 0; k--) {
+            printf("%c %s\n", prefix[k], diff[k]);
+        }
+        
+}
+
+
+
 int main(int argc, char *argv[])
 {
     // minigit init
@@ -1142,15 +1248,15 @@ int main(int argc, char *argv[])
     {
         cmd_log();
     }
-    // else if (strcmp(argv[1], "diff") == 0)
-    // {
-    //     if (argc < 5)
-    //     {
-    //         printf("Usage: minigit diff <id1> <id2> <file>\n");
-    //         return 1;
-    //     }
-    //     cmd_diff(atoi(argv[2]), atoi(argv[3]), argv[4]);
-    // }
+    else if (strcmp(argv[1], "diff") == 0)
+    {
+        if (argc < 5)
+        {
+            printf("Usage: minigit diff <id1> <id2> <file>\n");
+            return 1;
+        }
+        cmd_diff(atoi(argv[2]), atoi(argv[3]), argv[4]);
+    }
     else if (strcmp(argv[1], "revert") == 0)
     {
         if (argc < 3)
