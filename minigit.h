@@ -41,6 +41,8 @@ extern Branch *branchHead;        // head of the branch linked list
 extern Branch *branchTail;
 extern char currentBranch[30];    // name of the current branch
 extern int commitCount;           // total number of commits
+extern int jsonOutput;
+extern char repoPath[500];
 
 // function declarations
 

@@ -1,0 +1,897 @@
+{% extends "base.html" %}
+{% block title %}Visualizer — {{ name }} — MiniGit{% endblock %}
+
+{% block content %}
+<div class="breadcrumb">
+  <a href="/">repositories</a>
+  <span class="breadcrumb-sep">/</span>
+  <a href="/repo/{{ name }}">{{ name }}</a>
+  <span class="breadcrumb-sep">/</span>
+  <span>data structure visualizer</span>
+</div>
+
+<div class="page-header">
+  <div class="page-title">
+    <span>⬡</span>
+    <span>Data Structure Visualizer</span>
+    <span class="badge badge-blue" style="font-size:12px;margin-left:4px">{{ name }}</span>
+  </div>
+  <div style="display:flex;gap:10px;align-items:center">
+    <button class="btn" onclick="refresh()" title="Reload repository state">
+      <span>↻</span> Refresh Graph
+    </button>
+    <a href="/repo/{{ name }}" class="btn">
+      <span>←</span> Back to Commits
+    </a>
+  </div>
+</div>
+
+<div class="tabs">
+  <a href="/repo/{{ name }}" class="tab">
+    <span>💬</span> Commits
+  </a>
+  <a href="/repo/{{ name }}/branches" class="tab">
+    <span>🌿</span> Branches
+  </a>
+  <a href="/repo/{{ name }}/visualizer" class="tab active">
+    <span>⬡</span> Visualizer
+  </a>
+</div>
+
+<!-- DS Navigation Controls -->
+<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:8px;margin-bottom:24px;display:flex;gap:8px;flex-wrap:wrap;box-shadow:var(--shadow-sm)">
+  <button id="btn-tab-linked-list" class="btn btn-accent" onclick="showPanel('linked-list')">
+    <span>🔗</span> Commit Linked List
+  </button>
+  <button id="btn-tab-tree" class="btn" onclick="showPanel('tree')">
+    <span>🌳</span> Commit History Tree
+  </button>
+  <button id="btn-tab-stack" class="btn" onclick="showPanel('stack')">
+    <span>🥞</span> Undo Stack (LIFO)
+  </button>
+  <button id="btn-tab-branch-list" class="btn" onclick="showPanel('branch-list')">
+    <span>🌿</span> Branch Linked List
+  </button>
+  <button id="btn-tab-lcs" class="btn" onclick="showPanel('lcs')">
+    <span>⚡</span> LCS / Diff DP Table
+  </button>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════
+     PANEL 1 — LINKED LIST
+══════════════════════════════════════════════════════════════════════ -->
+<div id="panel-linked-list" class="viz-panel" style="margin-bottom:24px">
+  <div class="viz-panel-header">
+    <h3>
+      <span>🔗</span> Commit Linked List (next pointer traversal)
+    </h3>
+    <span class="badge badge-purple">Singly Linked List</span>
+  </div>
+  <div style="font-size:13px;color:var(--text-muted);margin-bottom:16px;line-height:1.6">
+    MiniGit stores the entire repository history in memory as a singly linked list of <code>CommitNode</code> structures.
+    Nodes are ordered chronologically from oldest (head of list) to latest. Arrows represent the <code>next</code> pointer in memory.
+  </div>
+  
+  <div class="viz-canvas-container">
+    <svg id="ll-svg" height="130" style="min-width:100%;display:block"></svg>
+  </div>
+  
+  <div id="ll-empty" class="empty" style="display:none">
+    <span class="empty-icon">📭</span>
+    <h3>No Commits Found</h3>
+    <p>Run <code>./minigit commit "message"</code> in your repository to create the first node.</p>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════
+     PANEL 2 — COMMIT TREE
+══════════════════════════════════════════════════════════════════════ -->
+<div id="panel-tree" class="viz-panel" style="display:none;margin-bottom:24px">
+  <div class="viz-panel-header">
+    <h3>
+      <span>🌳</span> Commit History Tree (Parent-Child Hierarchy)
+    </h3>
+    <span class="badge badge-blue">N-ary Directed Tree</span>
+  </div>
+  <div style="font-size:13px;color:var(--text-muted);margin-bottom:16px;line-height:1.6">
+    Every commit points back to its <code>parentId</code>. Branching occurs when multiple child commits share the same parent node.
+    Active branch references and <code>HEAD</code> pointers are highlighted above their corresponding target commits.
+  </div>
+  
+  <div class="viz-canvas-container" style="min-height:280px">
+    <svg id="tree-svg" height="320" style="min-width:100%;display:block"></svg>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════
+     PANEL 3 — UNDO STACK
+══════════════════════════════════════════════════════════════════════ -->
+<div id="panel-stack" class="viz-panel" style="display:none;margin-bottom:24px">
+  <div class="viz-panel-header">
+    <h3>
+      <span>🥞</span> Undo Stack (LIFO - Last In, First Out)
+    </h3>
+    <span class="badge badge-yellow">Stack Data Structure</span>
+  </div>
+  <div style="font-size:13px;color:var(--text-muted);margin-bottom:20px;line-height:1.6">
+    Whenever you make a commit or switch/revert, MiniGit pushes the previous branch state and HEAD pointer onto the undo stack.
+    Running <code>./minigit undo</code> pops the top element to restore the prior state.
+  </div>
+
+  <div style="display:flex;justify-content:center;padding:20px 0">
+    <div style="width:100%;max-width:440px">
+      <!-- Top pointer arrow -->
+      <div id="stack-label" style="text-align:center;font-size:12px;font-weight:700;color:var(--accent);margin-bottom:10px;display:flex;align-items:center;justify-content:center;gap:6px">
+        <span>▼</span> TOP OF STACK (Next element popped on undo) <span>▼</span>
+      </div>
+
+      <!-- Physical stack visual container -->
+      <div style="background:#070b13;border:2px solid var(--border);border-top:none;border-radius:0 0 var(--radius-lg) var(--radius-lg);padding:14px;box-shadow:inset 0 4px 16px rgba(0,0,0,0.5)">
+        <div id="stack-container" style="display:flex;flex-direction:column-reverse;gap:10px"></div>
+        <div id="stack-empty" class="empty" style="display:none;padding:32px 16px">
+          <span class="empty-icon">🕳️</span>
+          <h3>Undo Stack is Empty</h3>
+          <p>No previous operations to undo. Make a commit or branch switch to push items onto the stack.</p>
+        </div>
+      </div>
+      
+      <div style="text-align:center;font-size:11px;color:var(--text-subtle);margin-top:10px;font-family:var(--font-mono)">
+        STACK BOTTOM ────────────────────────────────
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════
+     PANEL 4 — BRANCH LINKED LIST
+══════════════════════════════════════════════════════════════════════ -->
+<div id="panel-branch-list" class="viz-panel" style="display:none;margin-bottom:24px">
+  <div class="viz-panel-header">
+    <h3>
+      <span>🌿</span> Branch Linked List & HEAD Pointer
+    </h3>
+    <span class="badge badge-green">Linked List with Active HEAD</span>
+  </div>
+  <div style="font-size:13px;color:var(--text-muted);margin-bottom:16px;line-height:1.6">
+    Branches are maintained as a singly linked list of <code>Branch</code> structs in C.
+    The global <code>HEAD</code> pointer designates the currently checked-out active branch.
+  </div>
+
+  <div style="margin-bottom:16px;background:var(--surface-card);border:1px solid var(--border);border-radius:var(--radius);padding:12px 18px;display:inline-flex;align-items:center;gap:12px">
+    <span style="font-size:13px;color:var(--text-muted)">Current Active HEAD:</span>
+    <span id="head-label" class="badge badge-green" style="font-size:13px;padding:4px 12px">...</span>
+  </div>
+
+  <div class="viz-canvas-container">
+    <svg id="bl-svg" height="120" style="min-width:100%;display:block"></svg>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════
+     PANEL 5 — LCS / DIFF
+══════════════════════════════════════════════════════════════════════ -->
+<div id="panel-lcs" class="viz-panel" style="display:none;margin-bottom:24px">
+  <div class="viz-panel-header">
+    <h3>
+      <span>⚡</span> LCS Diff Algorithm — Dynamic Programming Memoization Table
+    </h3>
+    <span class="badge badge-purple">2D Matrix LCS DP</span>
+  </div>
+  <div style="font-size:13px;color:var(--text-muted);margin-bottom:18px;line-height:1.6">
+    MiniGit implements the Longest Common Subsequence (LCS) algorithm to compute differences between snapshots.
+    Select two commits and a file below to compute the diff and view the exact <code>memo[i][j]</code> 2D dynamic programming grid.
+  </div>
+
+  <!-- Diff Controls Toolbar -->
+  <div style="background:var(--surface-card);border:1px solid var(--border);border-radius:var(--radius);padding:14px;display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:20px">
+    <div style="display:flex;flex-direction:column;gap:4px">
+      <label style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase">From Commit (Old)</label>
+      <select id="diff-id1" class="btn" style="min-width:180px;text-align:left"></select>
+    </div>
+
+    <div style="display:flex;flex-direction:column;gap:4px">
+      <label style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase">To Commit (New)</label>
+      <select id="diff-id2" class="btn" style="min-width:180px;text-align:left"></select>
+    </div>
+
+    <div style="display:flex;flex-direction:column;gap:4px">
+      <label style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase">Target File</label>
+      <input type="text" id="diff-file" class="btn" value="file1.txt" placeholder="e.g. file1.txt" style="min-width:160px;cursor:text;text-align:left">
+    </div>
+
+    <div style="display:flex;align-items:flex-end;margin-top:auto">
+      <button class="btn btn-accent" onclick="runDiff()" style="padding:9px 20px">
+        <span>⚡</span> Run LCS Diff
+      </button>
+    </div>
+  </div>
+
+  <div id="diff-output" style="display:none">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:20px">
+      <!-- Unified Diff Output -->
+      <div>
+        <div style="font-size:12px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:8px;display:flex;align-items:center;justify-content:space-between">
+          <span>Unified Diff Result</span>
+          <span id="diff-stats-badge" class="badge badge-blue"></span>
+        </div>
+        <div style="border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;background:var(--surface)">
+          <table class="diff-table" id="diff-table"></table>
+        </div>
+      </div>
+
+      <!-- LCS DP Matrix -->
+      <div>
+        <div style="font-size:12px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:8px;display:flex;align-items:center;justify-content:space-between">
+          <span>LCS Memo Table: memo[i][j]</span>
+          <span class="badge badge-green">Matching lines highlighted</span>
+        </div>
+        <div id="memo-table-wrap" style="overflow:auto;max-height:360px;border:1px solid var(--border);border-radius:var(--radius);background:#070b13;padding:4px"></div>
+        <div style="font-size:11px;color:var(--text-subtle);margin-top:8px;line-height:1.5">
+          • Recurrence: <code>memo[i][j] = memo[i-1][j-1] + 1</code> when lines match.<br>
+          • Green cells indicate common lines between versions.
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="diff-empty" style="color:var(--text-muted);font-size:13px;padding:24px;text-align:center;background:var(--surface-card);border:1px dashed var(--border);border-radius:var(--radius)">
+    Select two commits and a file, then click <strong>Run LCS Diff</strong> to inspect the algorithm.
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════
+     DATA + INTERACTIVE SCRIPT
+══════════════════════════════════════════════════════════════════════ -->
+<script>
+const REPO     = {{ name | tojson }};
+const COMMITS  = {{ commits  | tojson }};
+const BRANCHES = {{ branches | tojson }};
+const UNDO     = {{ undo_stack | tojson }};
+
+const NS = "http://www.w3.org/2000/svg";
+
+function el(tag, attrs={}, text='') {
+  const e = document.createElementNS(NS, tag);
+  for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v);
+  if (text) e.textContent = text;
+  return e;
+}
+
+function ensureArrowMarker(svg, color='#38bdf8', id='arrow') {
+  let defs = svg.querySelector('defs');
+  if (!defs) {
+    defs = el('defs');
+    svg.appendChild(defs);
+  }
+  let marker = svg.querySelector('#' + id);
+  if (!marker) {
+    marker = el('marker', {
+      id: id,
+      markerWidth: 8,
+      markerHeight: 8,
+      refX: 6,
+      refY: 3,
+      orient: 'auto'
+    });
+    marker.appendChild(el('path', { d: 'M0,0 L0,6 L8,3 z', fill: color }));
+    defs.appendChild(marker);
+  }
+}
+
+function drawArrow(svg, x1, y1, x2, y2, color='#38bdf8') {
+  ensureArrowMarker(svg, color, 'arrow-' + color.replace('#',''));
+  svg.appendChild(el('line', {
+    x1, y1, x2, y2,
+    stroke: color,
+    'stroke-width': 2.5,
+    'marker-end': `url(#arrow-${color.replace('#','')})`
+  }));
+}
+
+// ── Tab Switcher ─────────────────────────────────────────────────────────────
+const panels = ['linked-list', 'tree', 'stack', 'branch-list', 'lcs'];
+
+function showPanel(id) {
+  panels.forEach(p => {
+    const elPanel = document.getElementById('panel-' + p);
+    const elBtn = document.getElementById('btn-tab-' + p);
+    if (elPanel) elPanel.style.display = (p === id) ? 'block' : 'none';
+    if (elBtn) {
+      if (p === id) {
+        elBtn.className = 'btn btn-accent';
+      } else {
+        elBtn.className = 'btn';
+      }
+    }
+  });
+
+  if (id === 'lcs') {
+    populateDiffSelects();
+  }
+}
+
+// ── 1. LINKED LIST VISUALIZER ────────────────────────────────────────────────
+function drawLinkedList() {
+  const svg = document.getElementById('ll-svg');
+  const emptyMsg = document.getElementById('ll-empty');
+  svg.innerHTML = '';
+
+  if (!COMMITS.length) {
+    emptyMsg.style.display = 'block';
+    svg.style.display = 'none';
+    return;
+  }
+
+  emptyMsg.style.display = 'none';
+  svg.style.display = 'block';
+
+  // Chronological order: oldest first
+  const ordered = [...COMMITS].reverse();
+  const W = 190, GAP = 64, H = 76;
+  const totalW = ordered.length * (W + GAP) + 120;
+  
+  svg.setAttribute('width', Math.max(totalW, 400));
+  svg.setAttribute('height', H + 40);
+
+  const cy = (H + 40) / 2;
+
+  ordered.forEach((c, i) => {
+    const cx = i * (W + GAP) + W / 2 + 20;
+
+    // Outer card container
+    const card = el('rect', {
+      x: cx - W/2,
+      y: cy - H/2,
+      width: W,
+      height: H,
+      rx: 10,
+      fill: '#1e293b',
+      stroke: '#38bdf8',
+      'stroke-width': 2,
+      filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.4))'
+    });
+    svg.appendChild(card);
+
+    // Header bar inside card
+    const headerBar = el('rect', {
+      x: cx - W/2,
+      y: cy - H/2,
+      width: W,
+      height: 26,
+      rx: 10,
+      fill: '#0f172a'
+    });
+    svg.appendChild(headerBar);
+
+    // Commit ID badge text
+    svg.appendChild(el('text', {
+      x: cx - W/2 + 12,
+      y: cy - H/2 + 17,
+      fill: '#38bdf8',
+      'font-weight': '700',
+      'font-size': '12',
+      'font-family': 'var(--font-mono)'
+    }, `Commit #${c.id}`));
+
+    // Parent ID text
+    const parentText = c.parentId !== -1 ? `parent: #${c.parentId}` : 'root';
+    svg.appendChild(el('text', {
+      x: cx + W/2 - 12,
+      y: cy - H/2 + 17,
+      'text-anchor': 'end',
+      fill: '#94a3b8',
+      'font-size': '11',
+      'font-family': 'var(--font-mono)'
+    }, parentText));
+
+    // Commit Message (cleanly truncated)
+    const msg = c.message.length > 20 ? c.message.slice(0, 18) + '…' : c.message;
+    svg.appendChild(el('text', {
+      x: cx,
+      y: cy + 14,
+      'text-anchor': 'middle',
+      fill: '#f8fafc',
+      'font-weight': '600',
+      'font-size': '13'
+    }, msg));
+
+    // Next pointer arrow
+    if (i < ordered.length - 1) {
+      const nx = (i + 1) * (W + GAP) + W / 2 + 20;
+      drawArrow(svg, cx + W/2, cy, nx - W/2 - 6, cy, '#38bdf8');
+      
+      // Pointer label
+      svg.appendChild(el('text', {
+        x: cx + W/2 + GAP/2,
+        y: cy - 8,
+        'text-anchor': 'middle',
+        fill: '#94a3b8',
+        'font-size': '10',
+        'font-family': 'var(--font-mono)'
+      }, 'next'));
+    } else {
+      // NULL Terminator node
+      const nx = cx + W/2 + 45;
+      drawArrow(svg, cx + W/2, cy, nx - 22, cy, '#64748b');
+
+      const nullBox = el('rect', {
+        x: nx - 20,
+        y: cy - 14,
+        width: 48,
+        height: 28,
+        rx: 6,
+        fill: '#0f172a',
+        stroke: '#64748b',
+        'stroke-width': 1.5
+      });
+      svg.appendChild(nullBox);
+
+      svg.appendChild(el('text', {
+        x: nx + 4,
+        y: cy + 4,
+        'text-anchor': 'middle',
+        fill: '#94a3b8',
+        'font-weight': '700',
+        'font-size': '11',
+        'font-family': 'var(--font-mono)'
+      }, 'NULL'));
+    }
+  });
+}
+
+// ── 2. COMMIT HISTORY TREE VISUALIZER ────────────────────────────────────────
+function drawTree() {
+  const svg = document.getElementById('tree-svg');
+  svg.innerHTML = '';
+  if (!COMMITS.length) return;
+
+  // Build parent->children map
+  const children = {};
+  const byId = {};
+  COMMITS.forEach(c => { byId[c.id] = c; children[c.id] = []; });
+  COMMITS.forEach(c => {
+    if (c.parentId !== -1 && byId[c.parentId]) {
+      children[c.parentId].push(c.id);
+    }
+  });
+
+  // Find root commits
+  const roots = COMMITS.filter(c => c.parentId === -1 || !byId[c.parentId]).map(c => c.id);
+
+  // Position calculation by BFS
+  const pos = {};
+  let col = 0;
+  const ROW_H = 110, COL_W = 190;
+
+  function place(id, row) {
+    if (pos[id]) return;
+    // Start at y = 80 to prevent any branch badge clipping at the top
+    pos[id] = { x: col * COL_W + 110, y: row * ROW_H + 80 };
+    col++;
+    children[id].forEach((cid, i) => place(cid, row + 1 + i));
+  }
+  roots.forEach(r => place(r, 0));
+
+  const allX = Object.values(pos).map(p => p.x);
+  const allY = Object.values(pos).map(p => p.y);
+  const maxX = (allX.length ? Math.max(...allX) : 200) + 140;
+  const maxY = (allY.length ? Math.max(...allY) : 200) + 90;
+
+  svg.setAttribute('width', Math.max(maxX, 400));
+  svg.setAttribute('height', Math.max(maxY, 280));
+
+  // 1. Draw connecting arrows from Parent -> Child
+  COMMITS.forEach(c => {
+    if (c.parentId !== -1 && pos[c.id] && pos[c.parentId]) {
+      const p1 = pos[c.parentId];
+      const p2 = pos[c.id];
+      // Draw smooth curve or direct line
+      drawArrow(svg, p1.x, p1.y + 28, p2.x, p2.y - 32, '#64748b');
+    }
+  });
+
+  // 2. Draw Commit Nodes (Rounded Cards)
+  COMMITS.forEach(c => {
+    if (!pos[c.id]) return;
+    const {x, y} = pos[c.id];
+    const NW = 144, NH = 56;
+
+    // Check if this commit is HEAD of current branch
+    const isCurrentHead = BRANCHES.some(b => b.current && b.headId === c.id);
+    const borderColor = isCurrentHead ? '#22c55e' : '#38bdf8';
+
+    // Node Box
+    const rect = el('rect', {
+      x: x - NW/2,
+      y: y - NH/2,
+      width: NW,
+      height: NH,
+      rx: 8,
+      fill: '#1e293b',
+      stroke: borderColor,
+      'stroke-width': isCurrentHead ? 2.5 : 1.5,
+      filter: 'drop-shadow(0 2px 6px rgba(0,0,0,0.5))'
+    });
+    svg.appendChild(rect);
+
+    // Commit ID
+    svg.appendChild(el('text', {
+      x: x,
+      y: y - 6,
+      'text-anchor': 'middle',
+      fill: borderColor,
+      'font-weight': '700',
+      'font-size': '13',
+      'font-family': 'var(--font-mono)'
+    }, `#${c.id}`));
+
+    // Message
+    const shortMsg = c.message.length > 14 ? c.message.slice(0, 12) + '…' : c.message;
+    svg.appendChild(el('text', {
+      x: x,
+      y: y + 13,
+      'text-anchor': 'middle',
+      fill: '#cbd5e1',
+      'font-size': '11',
+      'font-weight': '500'
+    }, shortMsg));
+  });
+
+  // 3. Draw Branch Labels directly above the corresponding head commits
+  const branchesByHead = {};
+  BRANCHES.forEach(b => {
+    if (b.headId !== -1 && pos[b.headId]) {
+      if (!branchesByHead[b.headId]) branchesByHead[b.headId] = [];
+      branchesByHead[b.headId].push(b);
+    }
+  });
+
+  Object.entries(branchesByHead).forEach(([headId, bList]) => {
+    const {x, y} = pos[headId];
+    bList.forEach((b, idx) => {
+      const badgeY = y - 44 - (idx * 22);
+      const isCur = b.current;
+      const labelText = isCur ? `★ ${b.name} (HEAD)` : b.name;
+      const badgeW = labelText.length * 7.5 + 18;
+
+      const bg = el('rect', {
+        x: x - badgeW / 2,
+        y: badgeY,
+        width: badgeW,
+        height: 20,
+        rx: 10,
+        fill: isCur ? '#22c55e' : '#38bdf8',
+        filter: 'drop-shadow(0 1px 3px rgba(0,0,0,0.4))'
+      });
+      svg.appendChild(bg);
+
+      svg.appendChild(el('text', {
+        x: x,
+        y: badgeY + 14,
+        'text-anchor': 'middle',
+        fill: '#090d16',
+        'font-weight': '800',
+        'font-size': '11',
+        'font-family': 'var(--font-sans)'
+      }, labelText));
+    });
+  });
+}
+
+// ── 3. UNDO STACK VISUALIZER ─────────────────────────────────────────────────
+function drawStack() {
+  const container = document.getElementById('stack-container');
+  const emptyMsg  = document.getElementById('stack-empty');
+  const stackLabel = document.getElementById('stack-label');
+  container.innerHTML = '';
+
+  if (!UNDO.length) {
+    emptyMsg.style.display = 'block';
+    stackLabel.style.display = 'none';
+    return;
+  }
+
+  emptyMsg.style.display = 'none';
+  stackLabel.style.display = 'flex';
+
+  UNDO.forEach((entry, i) => {
+    const isTop = i === UNDO.length - 1;
+    const card = document.createElement('div');
+    card.style.cssText = `
+      background: ${isTop ? 'linear-gradient(135deg, rgba(56, 189, 248, 0.16), rgba(37, 99, 235, 0.16))' : 'var(--surface-card)'};
+      border: 1px solid ${isTop ? 'var(--accent)' : 'var(--border)'};
+      border-radius: var(--radius);
+      padding: 12px 16px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      box-shadow: ${isTop ? '0 0 12px rgba(56, 189, 248, 0.25)' : 'none'};
+      transition: all 0.2s ease;
+    `;
+
+    card.innerHTML = `
+      <div style="display:flex;align-items:center;gap:12px">
+        <span style="font-family:var(--font-mono);font-size:12px;color:var(--text-subtle);font-weight:700">#${i}</span>
+        <div>
+          <div style="font-weight:700;font-size:13px;color:#fff;display:flex;align-items:center;gap:6px">
+            <span>🌿</span> <span>${entry.branch}</span>
+          </div>
+          <div style="font-size:11px;color:var(--text-muted);font-family:var(--font-mono);margin-top:2px">
+            target head: <strong style="color:var(--accent)">commit #${entry.headId}</strong>
+          </div>
+        </div>
+      </div>
+      <div>
+        ${isTop ? '<span class="badge badge-blue">TOP</span>' : '<span style="font-size:11px;color:var(--text-subtle);font-family:var(--font-mono)">FRAME</span>'}
+      </div>
+    `;
+    container.appendChild(card);
+  });
+}
+
+// ── 4. BRANCH LINKED LIST VISUALIZER ─────────────────────────────────────────
+function drawBranchList() {
+  const svg = document.getElementById('bl-svg');
+  svg.innerHTML = '';
+
+  const activeBranch = BRANCHES.find(b => b.current);
+  document.getElementById('head-label').textContent = activeBranch ? activeBranch.name : 'None';
+
+  if (!BRANCHES.length) return;
+
+  const W = 180, GAP = 56, H = 76;
+  const total = BRANCHES.length * (W + GAP) + 120;
+  svg.setAttribute('width', Math.max(total, 350));
+  svg.setAttribute('height', H + 30);
+
+  const cy = (H + 30) / 2;
+
+  BRANCHES.forEach((b, i) => {
+    const cx = i * (W + GAP) + W / 2 + 20;
+    const isCurrent = b.current;
+
+    // Node Box
+    const rect = el('rect', {
+      x: cx - W/2,
+      y: cy - H/2,
+      width: W,
+      height: H,
+      rx: 10,
+      fill: '#1e293b',
+      stroke: isCurrent ? '#22c55e' : '#38bdf8',
+      'stroke-width': isCurrent ? 2.5 : 1.5,
+      filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.4))'
+    });
+    svg.appendChild(rect);
+
+    // Branch Name
+    svg.appendChild(el('text', {
+      x: cx,
+      y: cy - 8,
+      'text-anchor': 'middle',
+      fill: isCurrent ? '#22c55e' : '#38bdf8',
+      'font-weight': '700',
+      'font-size': '13'
+    }, `🌿 ${b.name}`));
+
+    // Head commit info
+    const headText = b.headId !== -1 ? `Head: Commit #${b.headId}` : 'Empty branch';
+    svg.appendChild(el('text', {
+      x: cx,
+      y: cy + 14,
+      'text-anchor': 'middle',
+      fill: '#94a3b8',
+      'font-size': '11',
+      'font-family': 'var(--font-mono)'
+    }, headText));
+
+    // Next arrow
+    if (i < BRANCHES.length - 1) {
+      const nx = (i + 1) * (W + GAP) + W / 2 + 20;
+      drawArrow(svg, cx + W/2, cy, nx - W/2 - 6, cy, '#38bdf8');
+    } else {
+      // NULL Terminator
+      const nx = cx + W/2 + 45;
+      drawArrow(svg, cx + W/2, cy, nx - 22, cy, '#64748b');
+
+      const nullBox = el('rect', {
+        x: nx - 20,
+        y: cy - 14,
+        width: 48,
+        height: 28,
+        rx: 6,
+        fill: '#0f172a',
+        stroke: '#64748b',
+        'stroke-width': 1.5
+      });
+      svg.appendChild(nullBox);
+
+      svg.appendChild(el('text', {
+        x: nx + 4,
+        y: cy + 4,
+        'text-anchor': 'middle',
+        fill: '#94a3b8',
+        'font-weight': '700',
+        'font-size': '11',
+        'font-family': 'var(--font-mono)'
+      }, 'NULL'));
+    }
+  });
+}
+
+// ── 5. LCS / DIFF & MEMO TABLE ───────────────────────────────────────────────
+function populateDiffSelects() {
+  const s1 = document.getElementById('diff-id1');
+  const s2 = document.getElementById('diff-id2');
+  if (!s1 || !s2) return;
+  s1.innerHTML = '';
+  s2.innerHTML = '';
+
+  [...COMMITS].reverse().forEach((c, idx) => {
+    const o1 = document.createElement('option');
+    o1.value = c.id;
+    o1.textContent = `#${c.id} — ${c.message.slice(0, 20)}`;
+    const o2 = o1.cloneNode(true);
+    s1.appendChild(o1);
+    s2.appendChild(o2);
+  });
+
+  if (COMMITS.length > 1) {
+    s2.selectedIndex = Math.min(1, COMMITS.length - 1);
+  }
+}
+
+async function runDiff() {
+  const id1  = document.getElementById('diff-id1').value;
+  const id2  = document.getElementById('diff-id2').value;
+  const file = document.getElementById('diff-file').value.trim();
+
+  if (!id1 || !id2) {
+    alert('Please select both commits.');
+    return;
+  }
+  if (id1 === id2) {
+    alert('Please pick two different commits to compare.');
+    return;
+  }
+  if (!file) {
+    alert('Please enter a target file name (e.g. file1.txt).');
+    return;
+  }
+
+  const emptyDiv = document.getElementById('diff-empty');
+  emptyDiv.innerHTML = '<span style="color:var(--accent)">Computing LCS Dynamic Programming table…</span>';
+  document.getElementById('diff-output').style.display = 'none';
+
+  try {
+    const resp = await fetch(`/api/${REPO}/diff/${id1}/${id2}/${encodeURIComponent(file)}`);
+    const data = await resp.json();
+    const lines = data.diff || [];
+
+    if (!lines.length) {
+      emptyDiv.innerHTML = `No changes or file <code>${escHtml(file)}</code> not found between Commit #${id1} and #${id2}.`;
+      return;
+    }
+
+    // Render diff table
+    const dt = document.getElementById('diff-table');
+    dt.innerHTML = '';
+    let adds = 0, rems = 0;
+
+    lines.forEach((l, idx) => {
+      const tr = document.createElement('tr');
+      const isAdd = l.prefix === '+';
+      const isRem = l.prefix === '-';
+      if (isAdd) adds++;
+      if (isRem) rems++;
+
+      tr.className = isAdd ? 'diff-add' : isRem ? 'diff-rem' : 'diff-ctx';
+      tr.innerHTML = `
+        <td class="diff-gutter">${l.prefix}</td>
+        <td>${escHtml(l.line)}</td>
+      `;
+      dt.appendChild(tr);
+    });
+
+    document.getElementById('diff-stats-badge').textContent = `+${adds} / -${rems} lines`;
+
+    // Reconstruct lines for DP table
+    const A = lines.filter(l => l.prefix === ' ' || l.prefix === '-').map(l => l.line);
+    const B = lines.filter(l => l.prefix === ' ' || l.prefix === '+').map(l => l.line);
+    drawMemoTable(A, B);
+
+    emptyDiv.style.display = 'none';
+    document.getElementById('diff-output').style.display = 'block';
+  } catch (err) {
+    emptyDiv.innerHTML = `<span style="color:var(--red)">Error fetching diff: ${escHtml(err.message)}</span>`;
+  }
+}
+
+function drawMemoTable(A, B) {
+  const n = Math.min(A.length, 16);
+  const m = Math.min(B.length, 16);
+  const dp = Array.from({length: n + 1}, () => Array(m + 1).fill(0));
+
+  for (let i = 1; i <= n; i++) {
+    for (let j = 1; j <= m; j++) {
+      if (A[i - 1] === B[j - 1]) {
+        dp[i][j] = dp[i - 1][j - 1] + 1;
+      } else {
+        dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]);
+      }
+    }
+  }
+
+  const wrap = document.getElementById('memo-table-wrap');
+  let html = '<table style="border-collapse:collapse;width:100%;font-family:var(--font-mono);font-size:11px">';
+  
+  // Header Row
+  html += '<tr>';
+  html += '<th style="padding:6px 10px;border:1px solid var(--border);background:#0f172a;color:var(--text-subtle)">i\\j</th>';
+  html += '<th style="padding:6px 10px;border:1px solid var(--border);background:#0f172a;color:var(--text-subtle)">ε</th>';
+  for (let j = 0; j < m; j++) {
+    html += `<th style="padding:6px 10px;border:1px solid var(--border);background:#0f172a;color:var(--green);max-width:80px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escHtml(B[j])}">B[${j}]</th>`;
+  }
+  html += '</tr>';
+
+  // Table Body
+  for (let i = 0; i <= n; i++) {
+    html += '<tr>';
+    const rowTitle = i === 0 ? 'ε' : `A[${i - 1}]`;
+    html += `<th style="padding:6px 10px;border:1px solid var(--border);background:#0f172a;color:var(--accent);white-space:nowrap" title="${i > 0 ? escHtml(A[i - 1]) : ''}">${rowTitle}</th>`;
+
+    for (let j = 0; j <= m; j++) {
+      const isMatch = (i > 0 && j > 0 && A[i - 1] === B[j - 1]);
+      const cellBg = isMatch ? 'rgba(34, 197, 94, 0.22)' : (i === 0 || j === 0) ? '#090d16' : '#1e293b';
+      const cellColor = isMatch ? '#86efac' : '#f8fafc';
+      const borderStyle = isMatch ? '2px solid #22c55e' : '1px solid var(--border)';
+
+      html += `<td style="padding:6px 10px;border:${borderStyle};text-align:center;background:${cellBg};color:${cellColor};font-weight:${isMatch ? '700' : '400'}">${dp[i][j]}</td>`;
+    }
+    html += '</tr>';
+  }
+  html += '</table>';
+  wrap.innerHTML = html;
+}
+
+function escHtml(s) {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+async function refresh() {
+  try {
+    const [logResp, branchResp] = await Promise.all([
+      fetch(`/api/${REPO}/log`),
+      fetch(`/api/${REPO}/branches`)
+    ]);
+    const logData = await logResp.json();
+    const branchData = await branchResp.json();
+
+    COMMITS.length = 0;
+    (logData.commits || []).forEach(c => COMMITS.push(c));
+    BRANCHES.length = 0;
+    (branchData.branches || []).forEach(b => BRANCHES.push(b));
+
+    drawAll();
+  } catch (e) {
+    console.error('Failed to refresh data', e);
+  }
+}
+
+function drawAll() {
+  drawLinkedList();
+  drawTree();
+  drawStack();
+  drawBranchList();
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  drawAll();
+  populateDiffSelects();
+});
+</script>
+{% endblock %}

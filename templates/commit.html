@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+{% block title %}Commit #{{ commit.id }} — {{ name }}{% endblock %}
+
+{% block content %}
+<div class="breadcrumb">
+  <a href="/">repositories</a>
+  <span class="breadcrumb-sep">/</span>
+  <a href="/repo/{{ name }}">{{ name }}</a>
+  <span class="breadcrumb-sep">/</span>
+  <span>commit #{{ commit.id }}</span>
+</div>
+
+<div class="page-header">
+  <div class="page-title">
+    <span>💬</span>
+    <span>{{ commit.message }}</span>
+  </div>
+  <div style="display:flex;gap:10px;align-items:center">
+    <a href="/repo/{{ name }}" class="btn">
+      <span>←</span> Back to Commits
+    </a>
+    <a href="/repo/{{ name }}/visualizer" class="btn btn-accent">
+      <span>⬡</span> View in Graph
+    </a>
+  </div>
+</div>
+
+<!-- Metadata Card -->
+<div class="card" style="margin-bottom:24px">
+  <div class="card-header">
+    <div style="display:flex;align-items:center;gap:8px">
+      <span>ℹ️</span>
+      <span>Commit Metadata</span>
+    </div>
+    <span class="badge badge-blue">Commit Node #{{ commit.id }}</span>
+  </div>
+  <div class="card-body">
+    <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(200px, 1fr));gap:20px">
+      <div>
+        <div style="font-size:11px;font-weight:700;color:var(--text-subtle);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:4px">
+          COMMIT HASH / ID
+        </div>
+        <div style="font-family:var(--font-mono);font-size:15px;color:var(--accent);font-weight:700">
+          #{{ commit.id }}
+        </div>
+      </div>
+      <div>
+        <div style="font-size:11px;font-weight:700;color:var(--text-subtle);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:4px">
+          PARENT COMMIT POINTER
+        </div>
+        <div style="font-family:var(--font-mono);font-size:14px">
+          {% if commit.parentId != -1 %}
+            <a href="/repo/{{ name }}/commit/{{ commit.parentId }}" class="btn btn-sm" style="font-family:var(--font-mono)">
+              <span>Parent: #{{ commit.parentId }}</span>
+            </a>
+          {% else %}
+            <span class="badge badge-purple">ROOT COMMIT (No parent)</span>
+          {% endif %}
+        </div>
+      </div>
+      <div>
+        <div style="font-size:11px;font-weight:700;color:var(--text-subtle);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:4px">
+          TIMESTAMP
+        </div>
+        <div style="font-family:var(--font-mono);font-size:13px;color:#cbd5e1">
+          {{ commit.timestamp if commit.timestamp else 'Recorded in log' }}
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% if diff_lines %}
+  <div style="font-weight:700;font-size:16px;color:#fff;margin-bottom:16px;display:flex;align-items:center;gap:8px">
+    <span>📑</span>
+    <span>Changed Files ({{ diff_lines|length }})</span>
+  </div>
+
+  {% for file_diff in diff_lines %}
+  <div class="diff-file">
+    <div class="diff-filename">
+      <span>📄</span>
+      <span>{{ file_diff.file }}</span>
+      <span class="badge badge-blue" style="margin-left:auto;font-size:11px">Snapshot Diff</span>
+    </div>
+    <table class="diff-table">
+      {% for line in file_diff.lines %}
+      <tr class="{% if line.prefix == '+' %}diff-add{% elif line.prefix == '-' %}diff-rem{% else %}diff-ctx{% endif %}">
+        <td class="diff-gutter">{{ line.prefix }}</td>
+        <td>{{ line.line }}</td>
+      </tr>
+      {% endfor %}
+    </table>
+  </div>
+  {% endfor %}
+{% elif commit.parentId == -1 %}
+  <div class="card">
+    <div class="empty">
+      <span class="empty-icon">🌱</span>
+      <h3>Root Repository Snapshot</h3>
+      <p>This is the very first commit of the project. There is no prior parent commit to diff against.</p>
+    </div>
+  </div>
+{% else %}
+  <div class="card">
+    <div class="empty">
+      <span class="empty-icon">🔍</span>
+      <h3>No File Modifications</h3>
+      <p>The files in this commit are identical to parent commit #{{ commit.parentId }}, or snapshot data was not recorded.</p>
+    </div>
+  </div>
+{% endif %}
+
+<div style="margin-top:24px">
+  <a href="/repo/{{ name }}" class="btn">
+    <span>←</span> Back to Commits
+  </a>
+</div>
+{% endblock %}

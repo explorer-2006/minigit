@@ -16,6 +16,8 @@ Branch *branchHead = NULL;
 Branch *branchTail = NULL;
 char currentBranch[30] = "main";
 int commitCount = 0;
+int jsonOutput = 0;
+char repoPath[500] = ".";
 
 int copy_file(const char *src, const char *dst) {
     // open src for reading in binary mode
@@ -129,7 +131,9 @@ void cmd_init() {
 
 
     // Create the main .minigit directory
-    int retval = MKDIR(".minigit");
+    char path[1024];
+    sprintf(path, "%s/.minigit", repoPath);
+    int retval = MKDIR(path);
 
     if (retval == -1) {
         printf("MiniGit repository already initialized!\n");
@@ -137,26 +141,28 @@ void cmd_init() {
     }
 
     // Create snapshots directory
-    if (MKDIR(".minigit/snapshots") == -1) {
+    sprintf(path, "%s/.minigit/snapshots", repoPath);
+    if (MKDIR(path) == -1) {
         printf("Error creating snapshots directory!\n");
         return;
     }
 
     // Create required metadata files
     const char *files[] = {
-        ".minigit/commits.dat",
-        ".minigit/branches.dat",
-        ".minigit/staging.dat",
-        ".minigit/undo.dat"
+        "commits.dat",
+        "branches.dat",
+        "staging.dat",
+        "undo.dat"
     };
 
     FILE *fp;
 
     for (int i = 0; i < 4; i++) {
-        fp = fopen(files[i], "w");
+        sprintf(path, "%s/.minigit/%s", repoPath, files[i]);
+        fp = fopen(path, "w");
 
         if (fp == NULL) {
-            printf("Error creating %s\n", files[i]);
+            printf("Error creating %s\n", path);
             return;
         }
 
@@ -164,7 +170,8 @@ void cmd_init() {
     }
 
     // Initialize HEAD with main branch
-    fp = fopen(".minigit/HEAD", "w");
+    sprintf(path, "%s/.minigit/HEAD", repoPath);
+    fp = fopen(path, "w");
 
     if (fp == NULL) {
         printf("Error creating HEAD file!\n");
@@ -222,14 +229,12 @@ void load_commits() {
         // increment commitCount
 
     // close the file
-    commitHead = NULL;
-    commitTail = NULL;
-    commitCount = 0;
-
     int id, parentId;
     long timestamp;
     char message[100]; 
-    FILE *pFile = fopen(".minigit/commits.dat", "r");
+    char path[1024];
+    sprintf(path, "%s/.minigit/commits.dat", repoPath);
+    FILE *pFile = fopen(path, "r");
     if(pFile == NULL){
         return;
     }
@@ -282,7 +287,9 @@ void save_commits() {
         // for each node, write: id|parentId|timestampstamp|message\n
 
     // close the file
-    FILE *pFile = fopen(".minigit/commits.dat", "w");
+    char path[1024];
+    sprintf(path, "%s/.minigit/commits.dat", repoPath);
+    FILE *pFile = fopen(path, "w");
     if(pFile == NULL){
         printf("Error opening the commits file... please check the path");
         return;
@@ -308,10 +315,9 @@ void load_branches() {
 
     // close the file
 
-    branchHead = NULL;
-    branchTail = NULL;
-
-    FILE *pFile = fopen(".minigit/branches.dat", "r");
+    char path[1024];
+    sprintf(path, "%s/.minigit/branches.dat", repoPath);
+    FILE *pFile = fopen(path, "r");
     if(pFile == NULL){
         return;
     }
@@ -347,7 +353,9 @@ void save_branches() {
 
     // close the file
 
-    FILE *pFile = fopen(".minigit/branches.dat", "w");
+    char path[1024];
+    sprintf(path, "%s/.minigit/branches.dat", repoPath);
+    FILE *pFile = fopen(path, "w");
     if(pFile == NULL){
         printf("Error writing the branches file... please check the path");
         return;
@@ -367,7 +375,9 @@ void load_head() {
     // read the branch name into currentBranch
     // close the file
 
-    FILE *pFile = fopen(".minigit/HEAD", "r");
+    char path[1024];
+    sprintf(path, "%s/.minigit/HEAD", repoPath);
+    FILE *pFile = fopen(path, "r");
     if(pFile == NULL){
         return;
     }
@@ -381,7 +391,9 @@ void save_head() {
     // if file open fails, print error and return
     // write currentBranch to the file
     // close the file
-    FILE *pFile = fopen(".minigit/HEAD", "w");
+    char path[1024];
+    sprintf(path, "%s/.minigit/HEAD", repoPath);
+    FILE *pFile = fopen(path, "w");
     if(pFile == NULL){
         return;
     }
@@ -395,7 +407,9 @@ void push_undo(const char *branch, int previousHeadId) {
     // if file open fails, print error and return
     // write: branch|previousHeadId\n
     // close the file
-    FILE *pFile = fopen(".minigit/undo.dat", "a");
+    char path[1024];
+    sprintf(path, "%s/.minigit/undo.dat", repoPath);
+    FILE *pFile = fopen(path, "a");
     if(pFile == NULL){
         return;
     }
@@ -405,8 +419,17 @@ void push_undo(const char *branch, int previousHeadId) {
 }
 
 int pop_undo(char *branchOut) {
-    // reads undo.dat, pops the last entry, rewrites file without it
-    // fills branchOut with branch name, returns previousHeadId or -1
+    // open .minigit/undo.dat for reading
+    // if file open fails or is empty, return -1
+    // if no lines, return -1
+
+    // parse the last line: branch|previousHeadId
+    // store branch name into branchOut
+    // store previousHeadId
+
+    // rewrite the file with all lines except the last one
+
+    // return previousHeadId
 
     typedef struct commitNodes 
     {
@@ -421,12 +444,14 @@ int pop_undo(char *branchOut) {
     char branchName[30];
     int previousHeadId;
 
-    FILE *pFile = fopen(".minigit/undo.dat", "r");
+    char path[1024];
+    sprintf(path, "%s/.minigit/undo.dat", repoPath);
+    FILE *pFile = fopen(path, "r");
     if(pFile == NULL){
         return -1;
     }
     
-    while (fscanf(pFile, " %[^|]|%d", branchName, &previousHeadId) == 2){
+    while (fscanf(pFile, "%[^|]|%d", branchName, &previousHeadId) == 2){
         commitNodes *newNode = (commitNodes*)calloc(1, sizeof(commitNodes));
         strcpy(newNode->branchName, branchName);
         newNode->previousHeadId = previousHeadId;
@@ -450,7 +475,7 @@ int pop_undo(char *branchOut) {
     strcpy(branchOut, tailCommit->branchName);
     int returnValue = tailCommit->previousHeadId;
  
-    pFile = fopen(".minigit/undo.dat", "w");
+    pFile = fopen(path, "w");
     temp = headCommit;
     while(temp != tailCommit){
         fprintf(pFile, "%s|%d\n",temp->branchName,temp->previousHeadId);
@@ -552,7 +577,9 @@ void cmd_revert(int id, int force) {
     }
 
     if(force == 0){
-        FILE *pFile = fopen(".minigit/staging.dat", "r");
+        char stagingPath[1024];
+        sprintf(stagingPath, "%s/.minigit/staging.dat", repoPath);
+        FILE *pFile = fopen(stagingPath, "r");
 
         if(pFile == NULL){
             printf("error opening staging file");
@@ -567,8 +594,8 @@ void cmd_revert(int id, int force) {
         
     }
 
-    sprintf(snapshotPath, ".minigit/snapshots/%d", id);
-        copy_dir(snapshotPath, ".");
+    sprintf(snapshotPath, "%s/.minigit/snapshots/%d", repoPath, id);
+        copy_dir(snapshotPath, repoPath);
 
         Branch *tempBranch;
         tempBranch = branchHead;
@@ -599,9 +626,12 @@ void cmd_add(const char *file) {
     // print "added <file>"
 
     // Check whether the file exists
-
-
+    char checkPath[1024];
     FILE *pFile = fopen(file, "rb");
+    if (pFile == NULL) {
+        snprintf(checkPath, sizeof(checkPath), "%s/%s", repoPath, file);
+        pFile = fopen(checkPath, "rb");
+    }
 
     if (pFile == NULL) {
         printf("Error: file '%s' does not exist!\n", file);
@@ -611,7 +641,9 @@ void cmd_add(const char *file) {
     fclose(pFile);
 
     // Open staging.dat in append mode
-    pFile = fopen(".minigit/staging.dat", "a");
+    char stagingPath[1024];
+    sprintf(stagingPath, "%s/.minigit/staging.dat", repoPath);
+    pFile = fopen(stagingPath, "a");
 
     if (pFile == NULL) {
         printf("Error opening staging file!\n");
@@ -629,6 +661,10 @@ void cmd_add(const char *file) {
 
 
 void cmd_commit(const char *msg) {
+    load_commits();
+    load_branches();
+    load_head();
+
     // load staging.dat — read all staged filenames into an array
     // if staging is empty, print "nothing to commit" and return
 
@@ -652,15 +688,14 @@ void cmd_commit(const char *msg) {
 
     // print "committed: <msg>"
 
-    load_commits();
-    load_branches();
-    load_head();
 
     // Step 1: Read all staged filenames
     char stagedFiles[100][100];
     int fileCount = 0;
 
-    FILE *pFile = fopen(".minigit/staging.dat", "r");
+    char stagingPath[1024];
+    sprintf(stagingPath, "%s/.minigit/staging.dat", repoPath);
+    FILE *pFile = fopen(stagingPath, "r");
 
     if (pFile == NULL) {
         printf("Nothing to commit!\n");
@@ -717,7 +752,7 @@ void cmd_commit(const char *msg) {
     // Step 4: Create snapshot directory
     char snapshotPath[1024];
 
-    sprintf(snapshotPath, ".minigit/snapshots/%d", newId);
+    sprintf(snapshotPath, "%s/.minigit/snapshots/%d", repoPath, newId);
 
     if (MKDIR(snapshotPath) == -1) {
         printf("Error creating snapshot directory!\n");
@@ -729,7 +764,7 @@ void cmd_commit(const char *msg) {
 
         char previousSnapshot[1024];
 
-        sprintf(previousSnapshot, ".minigit/snapshots/%d", previousHeadId);
+        sprintf(previousSnapshot, "%s/.minigit/snapshots/%d", repoPath, previousHeadId);
 
         copy_dir(previousSnapshot, snapshotPath);
     }
@@ -742,8 +777,12 @@ void cmd_commit(const char *msg) {
         snprintf(destinationPath, sizeof(destinationPath), "%s/%s", snapshotPath, stagedFiles[i]);
 
         if (copy_file(stagedFiles[i], destinationPath) == 0) {
-            printf("Error copying file: %s\n", stagedFiles[i]);
-            return;
+            char srcPath[1024];
+            snprintf(srcPath, sizeof(srcPath), "%s/%s", repoPath, stagedFiles[i]);
+            if (copy_file(srcPath, destinationPath) == 0) {
+                printf("Error copying file: %s\n", stagedFiles[i]);
+                return;
+            }
         }
     }
 
@@ -802,7 +841,7 @@ void cmd_commit(const char *msg) {
     save_branches();
 
     // Step 11: Clear staging.dat
-    pFile = fopen(".minigit/staging.dat", "w");
+    pFile = fopen(stagingPath, "w");
 
     if (pFile != NULL) {
         fclose(pFile);
@@ -813,10 +852,10 @@ void cmd_commit(const char *msg) {
 }
 
 void cmd_log() {
-
     load_commits();
     load_branches();
     load_head();
+
     // Find the current branch
     Branch *current = branchHead;
 
@@ -826,7 +865,8 @@ void cmd_log() {
 
     // Check whether the branch exists
     if (current == NULL) {
-        printf("Error: Current branch not found!\n");
+        if (jsonOutput) printf("{\"error\": \"branch not found\"}\n");
+        else printf("Error: Current branch not found!\n");
         return;
     }
 
@@ -834,7 +874,8 @@ void cmd_log() {
     int headId = current->headId;
 
     if (headId == -1) {
-        printf("No commits yet.\n");
+        if (jsonOutput) printf("{\"commits\": []}\n");
+        else printf("No commits yet.\n");
         return;
     }
 
@@ -846,28 +887,47 @@ void cmd_log() {
     }
 
     if (temp == NULL) {
-        printf("Error: Commit not found!\n");
+        if (jsonOutput) printf("{\"error\": \"commit not found\"}\n");
+        else printf("Error: Commit not found!\n");
         return;
     }
 
-    // Traverse backwards using parent pointers
-    while (temp != NULL) {
+    if (jsonOutput) {
+        Commit *arr[500];
+        int count = 0;
+        while (temp != NULL) {
+            arr[count++] = temp;
+            temp = temp->parent;
+        }
+        printf("{\"commits\": [");
+        for (int i = 0; i < count; i++) {
+            printf("{\"id\": %d, \"parentId\": %d, \"timestamp\": %ld, \"message\": \"%s\"}",
+                arr[i]->id, arr[i]->parentId, arr[i]->timestamp, arr[i]->message);
+            if (i < count - 1) printf(",");
+        }
+        printf("]}\n");
+    } else {
+        // Traverse backwards using parent pointers
+        while (temp != NULL) {
 
-        printf("\n----------------------------------\n");
+            printf("\n----------------------------------\n");
 
-        printf("Commit ID : %d\n", temp->id);
-        printf("Parent ID : %d\n", temp->parentId);
+            printf("Commit ID : %d\n", temp->id);
+            printf("Parent ID : %d\n", temp->parentId);
 
-        time_t when = temp->timestamp;
-        printf("Date      : %s", ctime(&when));
+            time_t when = temp->timestamp;
+            printf("Date      : %s", ctime(&when));
 
-        printf("Message   : %s\n", temp->message);
+            printf("Message   : %s\n", temp->message);
 
-        temp = temp->parent;
+            temp = temp->parent;
+        }
+
+        printf("----------------------------------\n");
     }
-
-    printf("----------------------------------\n");
 }
+
+
 
 //  BRANCH 
 
@@ -967,7 +1027,9 @@ void cmd_switch(const char *name) {
 
     //2. Check for staged changes
 
-    FILE *pFile = fopen(".minigit/staging.dat", "r"); //opens the staging file for reading
+    char stagingPath[1024];
+    sprintf(stagingPath, "%s/.minigit/staging.dat", repoPath);
+    FILE *pFile = fopen(stagingPath, "r"); //opens the staging file for reading
     if (pFile != NULL) {   //fopen returns NULL if the file can't be opened
         int hasStaged = (fgetc(pFile) != EOF);  //if the file is empty it returns EOF, so hasStaged is 0,if naything is there it's 1
         fclose(pFile);
@@ -981,9 +1043,9 @@ void cmd_switch(const char *name) {
     //3. Restoring files
 
     if (target->headId != -1) {     //-1 means the branch has no commits , so nothing to restore
-        char snapshotPath[500];
-        sprintf(snapshotPath, ".minigit/snapshots/%d", target->headId); //builds the path to the snapshot for the target's latest commit
-        copy_dir(snapshotPath, "."); //copies every file from that snapshot into the current folder
+        char snapshotPath[1024];
+        sprintf(snapshotPath, "%s/.minigit/snapshots/%d", repoPath, target->headId); //builds the path to the snapshot for the target's latest commit
+        copy_dir(snapshotPath, repoPath); //copies every file from that snapshot into the repo folder
     }
 
     strcpy(currentBranch, name);  //updates the current branch name in memory
@@ -998,6 +1060,22 @@ void cmd_branches() {
     load_branches();  //reads branches.dat into the linked list starting at branchHead
     load_head();     //reads HEAD into currentBranch, so the function knows which branch is active
 
+    if (jsonOutput) {
+        printf("{\"branches\": [");
+        Branch *temp = branchHead;
+        int first = 1;
+        while (temp != NULL) {
+            if (!first) printf(",");
+            printf("{\"name\": \"%s\", \"headId\": %d, \"current\": %s}",
+                temp->name,
+                temp->headId,
+                strcmp(temp->name, currentBranch) == 0 ? "true" : "false");
+            first = 0;
+            temp = temp->next;
+        }
+        printf("]}\n");
+        return;
+    }
 
     if (branchHead == NULL) {   //branchHead is NULL when the list is empty, meaning no branches exist
         printf("No branches yet.\n");
@@ -1096,6 +1174,122 @@ void cmd_search(const char *keyword) {
     }
 }
 
+void cmd_diff(int id1, int id2, const char *file) {
+    // build path to file in snapshot id1: .minigit/snapshots/<id1>/<file>
+    // build path to file in snapshot id2: .minigit/snapshots/<id2>/<file>
+
+    // open both files, if either fails print error and return
+
+    // read lines of file1 into array A, count = n
+    // read lines of file2 into array B, count = m
+
+    // close both files
+
+    // build LCS table c[n+1][m+1], initialize all to 0
+    // fill the table using the recurrence:
+        // for i = 1 to n:
+            // for j = 1 to m:
+                // if A[i-1] == B[j-1]: c[i][j] = 1 + c[i-1][j-1]
+                // else: c[i][j] = max(c[i][j-1], c[i-1][j])
+
+    // traceback to print the diff:
+        // start at i=n, j=m
+        // if A[i-1] == B[j-1]: print "  <line>", move i-1, j-1
+        // else if c[i-1][j] > c[i][j-1]: print "- <line>", move i-1
+        // else: print "+ <line>", move j-1
+
+        char snapshotPath1[1024];
+        char snapshotPath2[1024];
+        sprintf(snapshotPath1, "%s/.minigit/snapshots/%d/%s", repoPath, id1, file);
+        sprintf(snapshotPath2, "%s/.minigit/snapshots/%d/%s", repoPath, id2, file);
+
+        FILE *pFile1 = fopen(snapshotPath1, "r");
+        FILE *pFile2 = fopen(snapshotPath2, "r");
+
+        if(pFile1 == NULL){
+            printf("error opening the first file!!");
+            return;
+        }
+        else if (pFile2 == NULL){
+            printf("error opening the second file!!");
+            fclose(pFile1);
+            return;
+        }
+
+        char A[200][256];  // up to 200 lines, 256 chars each
+        char B[200][256];
+        int n = 0, m = 0;
+
+        while (n < 200 && fgets(A[n], sizeof(A[n]), pFile1) != NULL) {
+            A[n][strcspn(A[n], "\r\n")] = '\0';  // strip newline
+            n++;
+        }
+
+        while (m < 200 && fgets(B[m], sizeof(B[m]), pFile2) != NULL) {
+            B[m][strcspn(B[m], "\r\n")] = '\0';
+            m++;
+        }
+
+        fclose(pFile1);
+        fclose(pFile2);
+
+        int c[n+1][m+1];
+        memset(c, 0, sizeof(c));
+
+        for(int i = 1; i <= n; i++){
+            for(int j = 1; j <= m; j++){
+                if (strcmp(A[i-1], B[j-1]) == 0){
+                    c[i][j] = 1 + c[i-1][j-1];
+                }
+                else{
+                    c[i][j] = c[i][j-1] > c[i-1][j] ? c[i][j-1] : c[i-1][j];
+                }
+            }
+        }
+
+        char diff[400][260];  // stores diff lines
+        char prefix[400];     // stores '+', '-', or ' ' for each line
+        int diffCount = 0;
+
+        int i = n, j = m;
+        while (i > 0 || j > 0) {
+            if (i > 0 && j > 0 && strcmp(A[i-1], B[j-1]) == 0) {
+                strcpy(diff[diffCount], A[i-1]);
+                prefix[diffCount] = ' ';
+                i--;j--;
+            } 
+            else if (i > 0 && (j == 0 || c[i-1][j] > c[i][j-1])) {
+                strcpy(diff[diffCount], A[i-1]);
+                prefix[diffCount] = '-';
+                i--;
+            } 
+            else {
+                strcpy(diff[diffCount], B[j-1]);
+                prefix[diffCount] = '+';
+                j--;
+            }
+            diffCount++;
+        }
+
+        // print in reverse
+        if (jsonOutput) {
+            printf("{\"diff\": [");
+            for (int k = diffCount - 1; k >= 0; k--) {
+                printf("{\"prefix\": \"%c\", \"line\": \"%s\"}", prefix[k], diff[k]);
+                if (k > 0) printf(",");
+            }
+            printf("]}");
+        } 
+        else {
+            for (int k = diffCount - 1; k >= 0; k--) {
+                printf("%c %s\n", prefix[k], diff[k]);
+            }
+        }
+        
+}
+
+
+
 int main(int argc, char *argv[])
 {
     // minigit init
@@ -1109,6 +1303,36 @@ int main(int argc, char *argv[])
     // minigit switch <name>
     // minigit branches
     // minigit search <keyword>
+
+    
+    // check all args for --json and --repo
+
+    for (int i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "--repo") == 0 && i + 1 < argc) {
+            strcpy(repoPath, argv[i + 1]);
+#ifdef _WIN32
+            if (strncmp(repoPath, "/tmp", 4) == 0) {
+                struct stat st;
+                if (stat(repoPath, &st) != 0) {
+                    char *tempEnv = getenv("TEMP");
+                    if (!tempEnv) tempEnv = getenv("TMP");
+                    if (tempEnv) {
+                        char resolved[500];
+                        snprintf(resolved, sizeof(resolved), "%s%s", tempEnv, repoPath + 4);
+                        strcpy(repoPath, resolved);
+                    }
+                }
+            }
+#endif
+            size_t rlen = strlen(repoPath);
+            while (rlen > 1 && (repoPath[rlen - 1] == '/' || repoPath[rlen - 1] == '\\')) {
+                repoPath[--rlen] = '\0';
+            }
+        }
+        if (strcmp(argv[i], "--json") == 0) {
+            jsonOutput = 1;
+        }
+    }
 
     if (argc < 2)
     {
@@ -1142,15 +1366,15 @@ int main(int argc, char *argv[])
     {
         cmd_log();
     }
-    // else if (strcmp(argv[1], "diff") == 0)
-    // {
-    //     if (argc < 5)
-    //     {
-    //         printf("Usage: minigit diff <id1> <id2> <file>\n");
-    //         return 1;
-    //     }
-    //     cmd_diff(atoi(argv[2]), atoi(argv[3]), argv[4]);
-    // }
+    else if (strcmp(argv[1], "diff") == 0)
+    {
+        if (argc < 5)
+        {
+            printf("Usage: minigit diff <id1> <id2> <file>\n");
+            return 1;
+        }
+        cmd_diff(atoi(argv[2]), atoi(argv[3]), argv[4]);
+    }
     else if (strcmp(argv[1], "revert") == 0)
     {
         if (argc < 3)
@@ -1201,6 +1425,8 @@ int main(int argc, char *argv[])
         printf("Unknown command: %s\n", argv[1]);
         return 1;
     }
+
+    
 
     return 0;
 }

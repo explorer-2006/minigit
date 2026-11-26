@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+{% block title %}Branches — {{ name }} — MiniGit{% endblock %}
+
+{% block content %}
+<div class="breadcrumb">
+  <a href="/">repositories</a>
+  <span class="breadcrumb-sep">/</span>
+  <a href="/repo/{{ name }}">{{ name }}</a>
+  <span class="breadcrumb-sep">/</span>
+  <span>branches</span>
+</div>
+
+<div class="page-header">
+  <div class="page-title">
+    <span>🌿</span>
+    <span>Branch List</span>
+  </div>
+  <div style="display:flex;gap:10px;align-items:center">
+    <a href="/repo/{{ name }}/visualizer" class="btn btn-accent">
+      <span>⬡</span> View Branch Graph
+    </a>
+    <a href="/repo/{{ name }}" class="btn">
+      <span>💬</span> View Commits
+    </a>
+  </div>
+</div>
+
+<div class="tabs">
+  <a href="/repo/{{ name }}" class="tab">
+    <span>💬</span> Commits
+  </a>
+  <a href="/repo/{{ name }}/branches" class="tab active">
+    <span>🌿</span> Branches ({{ branches|length }})
+  </a>
+  <a href="/repo/{{ name }}/visualizer" class="tab">
+    <span>⬡</span> Visualizer
+  </a>
+</div>
+
+{% if branches %}
+<div class="card">
+  <div class="card-header">
+    <div style="display:flex;align-items:center;gap:8px">
+      <span>🌿</span>
+      <span>Repository Branches</span>
+    </div>
+    <span class="badge badge-green">{{ branches|length }} Active Branches</span>
+  </div>
+
+  <div>
+    {% for b in branches %}
+    <div class="commit-row" style="cursor:default">
+      <div class="commit-avatar" style="border-color:{% if b.current %}var(--green){% else %}var(--border){% endif %};color:{% if b.current %}var(--green){% else %}var(--text-muted){% endif %}">
+        {% if b.current %}★{% else %}🌿{% endif %}
+      </div>
+      <div class="commit-main">
+        <div style="display:flex;align-items:center;gap:10px">
+          <span style="font-size:15px;font-weight:700;color:#fff">{{ b.name }}</span>
+          {% if b.current %}
+            <span class="badge badge-green">CURRENT CHECKOUT (HEAD)</span>
+          {% endif %}
+        </div>
+        <div class="commit-meta" style="margin-top:4px">
+          {% if b.headId != -1 %}
+            <span>Target HEAD commit:</span>
+            <a href="/repo/{{ name }}/commit/{{ b.headId }}" class="commit-id-pill" style="text-decoration:none">
+              Commit #{{ b.headId }}
+            </a>
+          {% else %}
+            <span style="color:var(--text-subtle)">No commits made on this branch yet</span>
+          {% endif %}
+        </div>
+      </div>
+      <div>
+        {% if b.headId != -1 %}
+          <a href="/repo/{{ name }}/commit/{{ b.headId }}" class="btn btn-sm">
+            Inspect HEAD →
+          </a>
+        {% endif %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% else %}
+<div class="card">
+  <div class="empty">
+    <span class="empty-icon">🌿</span>
+    <h3>No Branches Found</h3>
+    <p>Run <code>./minigit branch &lt;name&gt;</code> in your terminal to create a branch.</p>
+  </div>
+</div>
+{% endif %}
+
+<div class="card" style="margin-top:24px">
+  <div class="card-header">
+    <span>💡 Branch Operations Cheat Sheet</span>
+  </div>
+  <div class="card-body" style="background:#070b13;font-family:var(--font-mono);font-size:13px;line-height:2">
+    <div><span style="color:var(--text-subtle)"># Create a new branch:</span></div>
+    <div><span style="color:var(--accent)">./minigit</span> branch <span style="color:#fde047">feature-x</span></div>
+    
+    <div style="margin-top:8px"><span style="color:var(--text-subtle)"># Switch to another branch:</span></div>
+    <div><span style="color:var(--accent)">./minigit</span> switch <span style="color:#fde047">feature-x</span></div>
+
+    <div style="margin-top:8px"><span style="color:var(--text-subtle)"># List branches in terminal:</span></div>
+    <div><span style="color:var(--accent)">./minigit</span> branches</div>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+{% block title %}{{ name }} — Repository History{% endblock %}
+
+{% block content %}
+<div class="breadcrumb">
+  <a href="/">repositories</a>
+  <span class="breadcrumb-sep">/</span>
+  <span>{{ name }}</span>
+</div>
+
+<div class="page-header">
+  <div class="page-title">
+    <span>📦</span>
+    <span>{{ name }}</span>
+    {% for b in branches %}
+      {% if b.current %}
+        <span class="badge badge-green" style="font-size:12px;margin-left:4px">
+          ★ {{ b.name }} (HEAD)
+        </span>
+      {% endif %}
+    {% endfor %}
+  </div>
+  <div style="display:flex;gap:10px;align-items:center">
+    <a href="/repo/{{ name }}/visualizer" class="btn btn-accent">
+      <span>⬡</span> Open Visualizer
+    </a>
+    <a href="/repo/{{ name }}/branches" class="btn">
+      <span>🌿</span> View Branches
+    </a>
+  </div>
+</div>
+
+<div class="tabs">
+  <a href="/repo/{{ name }}" class="tab active">
+    <span>💬</span> Commits ({{ commits|length }})
+  </a>
+  <a href="/repo/{{ name }}/branches" class="tab">
+    <span>🌿</span> Branches ({{ branches|length }})
+  </a>
+  <a href="/repo/{{ name }}/visualizer" class="tab">
+    <span>⬡</span> Visualizer
+  </a>
+</div>
+
+{% if commits %}
+<div class="card">
+  <div class="card-header">
+    <div style="display:flex;align-items:center;gap:8px">
+      <span>📜</span>
+      <span>Commit History Timeline</span>
+    </div>
+    <span class="badge badge-blue">{{ commits|length }} Total Commits</span>
+  </div>
+
+  <div class="commit-timeline">
+    {% for c in commits %}
+    <a href="/repo/{{ name }}/commit/{{ c.id }}" class="commit-row">
+      <div class="commit-avatar">
+        #{{ c.id }}
+      </div>
+      <div class="commit-main">
+        <div class="commit-msg">{{ c.message }}</div>
+        <div class="commit-meta">
+          <div class="commit-meta-item">
+            <span style="color:var(--text-subtle)">Commit:</span>
+            <span class="commit-id-pill">#{{ c.id }}</span>
+          </div>
+          {% if c.parentId != -1 %}
+          <div class="commit-meta-item">
+            <span style="color:var(--text-subtle)">Parent:</span>
+            <span style="color:var(--accent);font-family:var(--font-mono);font-weight:600">#{{ c.parentId }}</span>
+          </div>
+          {% else %}
+          <div class="commit-meta-item">
+            <span class="badge badge-purple" style="font-size:10px;padding:2px 8px">ROOT COMMIT</span>
+          </div>
+          {% endif %}
+          {% if c.timestamp %}
+          <div class="commit-meta-item" style="color:var(--text-subtle)">
+            <span>🕒</span>
+            <span>{{ c.timestamp }}</span>
+          </div>
+          {% endif %}
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <span class="btn btn-sm">Inspect Diff →</span>
+      </div>
+    </a>
+    {% endfor %}
+  </div>
+</div>
+{% else %}
+<div class="card">
+  <div class="empty">
+    <span class="empty-icon">📝</span>
+    <h3>No Commits Recorded</h3>
+    <p>This repository does not have any commits yet. Run <code>./minigit commit "first commit"</code> to start tracking.</p>
+  </div>
+</div>
+{% endif %}
+{% endblock %}
