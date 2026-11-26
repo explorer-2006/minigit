@@ -1,0 +1,22 @@
+# Binaries and compiled object files
+minigit
+minigit.exe
+*.o
+*.obj
+*.dll
+*.so
+*.dylib
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Server repository storage & local test minigit repos
+.minigit/
+repos/
+*.zip
+
+# Temporary test files
+test.txt
+file*.txt
