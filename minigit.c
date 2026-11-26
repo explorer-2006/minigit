@@ -601,7 +601,7 @@ void cmd_add(const char *file) {
     // Check whether the file exists
 
 
-    FILE *pFile = fopen(file, "rb");
+    FILE *pFile = fopen(file, "r");
 
     if (pFile == NULL) {
         printf("Error: file '%s' does not exist!\n", file);
@@ -691,7 +691,7 @@ void cmd_commit(const char *msg) {
 
     Commit *tempCommit = commitHead;
 
-    while (tempCommit != NULL) {
+    while (tempCommit != NULL) { 
         if (tempCommit->id >= newId) {
             newId = tempCommit->id + 1;
         }
@@ -816,7 +816,7 @@ void cmd_log() {
 
     load_commits();
     load_branches();
-    load_head();
+    load_head();    
     // Find the current branch
     Branch *current = branchHead;
 
@@ -853,20 +853,32 @@ void cmd_log() {
     // Traverse backwards using parent pointers
     while (temp != NULL) {
 
-        printf("\n----------------------------------\n");
+    printf("\n----------------------------------\n");
 
-        printf("Commit ID : %d\n", temp->id);
-        printf("Parent ID : %d\n", temp->parentId);
+printf("Commit ID : %d\n", temp->id);
+printf("Parent ID : %d\n", temp->parentId);
 
-        time_t when = temp->timestamp;
-        printf("Date      : %s", ctime(&when));
+time_t when = (time_t)temp->timestamp;
+struct tm *localTime = localtime(&when);
 
-        printf("Message   : %s\n", temp->message);
+if (localTime != NULL) {
+    printf("Date      : %02d-%02d-%04d\n",
+           localTime->tm_mday,
+           localTime->tm_mon + 1,
+           localTime->tm_year + 1900);
 
-        temp = temp->parent;
-    }
+    printf("Time      : %02d:%02d:%02d\n",
+           localTime->tm_hour,
+           localTime->tm_min,
+           localTime->tm_sec);
+}
 
-    printf("----------------------------------\n");
+printf("Message   : %s\n", temp->message);
+
+temp = temp->parent;
+}
+
+printf("----------------------------------\n");
 }
 
 //  BRANCH 
