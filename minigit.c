@@ -16,6 +16,8 @@ Branch *branchHead = NULL;
 Branch *branchTail = NULL;
 char currentBranch[30] = "main";
 int commitCount = 0;
+int jsonOutput = 0;
+char repoPath[500] = ".";
 
 int copy_file(const char *src, const char *dst) {
     // open src for reading in binary mode
@@ -813,60 +815,66 @@ void cmd_commit(const char *msg) {
 }
 
 void cmd_log() {
-
     load_commits();
     load_branches();
     load_head();
-    // Find the current branch
+
     Branch *current = branchHead;
-
-    while (current != NULL && strcmp(current->name, currentBranch) != 0) {
+    while (current != NULL && strcmp(current->name, currentBranch) != 0)
         current = current->next;
-    }
 
-    // Check whether the branch exists
     if (current == NULL) {
-        printf("Error: Current branch not found!\n");
+        if (jsonOutput) printf("{\"error\": \"branch not found\"}");
+        else printf("Error: Current branch not found!\n");
         return;
     }
 
-    // Get the latest commit of the current branch
     int headId = current->headId;
-
     if (headId == -1) {
-        printf("No commits yet.\n");
+        if (jsonOutput) printf("{\"commits\": []}");
+        else printf("No commits yet.\n");
         return;
     }
 
-    // Find the latest commit in the commit linked list
     Commit *temp = commitHead;
-
-    while (temp != NULL && temp->id != headId) {
+    while (temp != NULL && temp->id != headId)
         temp = temp->next;
-    }
 
     if (temp == NULL) {
-        printf("Error: Commit not found!\n");
+        if (jsonOutput) printf("{\"error\": \"commit not found\"}");
+        else printf("Error: Commit not found!\n");
         return;
     }
 
-    // Traverse backwards using parent pointers
-    while (temp != NULL) {
-
-        printf("\n----------------------------------\n");
-
-        printf("Commit ID : %d\n", temp->id);
-        printf("Parent ID : %d\n", temp->parentId);
-
-        time_t when = temp->timestamp;
-        printf("Date      : %s", ctime(&when));
-
-        printf("Message   : %s\n", temp->message);
-
-        temp = temp->parent;
+    if (jsonOutput) {
+        // collect commits into array first
+        Commit *arr[500];
+        int count = 0;
+        while (temp != NULL) {
+            arr[count++] = temp;
+            temp = temp->parent;
+        }
+        // print JSON
+        printf("{\"commits\": [");
+        for (int i = 0; i < count; i++) {
+            printf("{\"id\": %d, \"parentId\": %d, \"timestamp\": %ld, \"message\": \"%s\"}",
+                arr[i]->id, arr[i]->parentId, arr[i]->timestamp, arr[i]->message);
+            if (i < count - 1) printf(",");
+        }
+        printf("]}");
+    } 
+    else{
+        while (temp != NULL) {
+            printf("\n----------------------------------\n");
+            printf("Commit ID : %d\n", temp->id);
+            printf("Parent ID : %d\n", temp->parentId);
+            time_t when = temp->timestamp;
+            printf("Date      : %s", ctime(&when));
+            printf("Message   : %s\n", temp->message);
+            temp = temp->parent;
+        }
+        printf("----------------------------------\n");
     }
-
-    printf("----------------------------------\n");
 }
 
 //  BRANCH 
@@ -998,6 +1006,22 @@ void cmd_branches() {
     load_branches();  //reads branches.dat into the linked list starting at branchHead
     load_head();     //reads HEAD into currentBranch, so the function knows which branch is active
 
+    if (jsonOutput) {
+        printf("{\"branches\": [");
+        Branch *temp = branchHead;
+        int first = 1;
+        while (temp != NULL) {
+            if (!first) printf(",");
+            printf("{\"name\": \"%s\", \"headId\": %d, \"current\": %s}",
+                temp->name,
+                temp->headId,
+                strcmp(temp->name, currentBranch) == 0 ? "true" : "false");
+            first = 0;
+            temp = temp->next;
+        }
+        printf("]}");
+        return;
+    }
 
     if (branchHead == NULL) {   //branchHead is NULL when the list is empty, meaning no branches exist
         printf("No branches yet.\n");
@@ -1016,7 +1040,6 @@ void cmd_branches() {
         temp = temp->next;   //moves to the next branch in the list
     }
 }
-
 //  SEARCH 
 
 void cmd_search(const char *keyword) {
@@ -1194,8 +1217,18 @@ void cmd_diff(int id1, int id2, const char *file) {
         }
 
         // print in reverse
-        for (int k = diffCount - 1; k >= 0; k--) {
-            printf("%c %s\n", prefix[k], diff[k]);
+        if (jsonOutput) {
+            printf("{\"diff\": [");
+            for (int k = diffCount - 1; k >= 0; k--) {
+                printf("{\"prefix\": \"%c\", \"line\": \"%s\"}", prefix[k], diff[k]);
+                if (k > 0) printf(",");
+            }
+            printf("]}");
+        } 
+        else {
+            for (int k = diffCount - 1; k >= 0; k--) {
+                printf("%c %s\n", prefix[k], diff[k]);
+            }
         }
         
 }
@@ -1215,6 +1248,18 @@ int main(int argc, char *argv[])
     // minigit switch <name>
     // minigit branches
     // minigit search <keyword>
+
+    
+    // check all args for --json and --repo
+
+    for (int i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "--repo") == 0 && i + 1 < argc) {
+            strcpy(repoPath, argv[i + 1]);
+        }
+        if (strcmp(argv[i], "--json") == 0) {
+            jsonOutput = 1;
+        }
+    }
 
     if (argc < 2)
     {
@@ -1307,6 +1352,8 @@ int main(int argc, char *argv[])
         printf("Unknown command: %s\n", argv[1]);
         return 1;
     }
+
+    
 
     return 0;
 }
