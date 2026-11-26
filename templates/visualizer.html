@@ -91,7 +91,17 @@
     <h3>
       <span>🌳</span> Commit History Tree (Parent-Child Hierarchy)
     </h3>
-    <span class="badge badge-blue">N-ary Directed Tree</span>
+    <div style="display:flex;gap:8px;align-items:center">
+      <div style="display:inline-flex;background:var(--surface-card);border:1px solid var(--border);border-radius:var(--radius);padding:2px">
+        <button id="btn-tree-mode-lanes" class="btn btn-accent" style="padding:4px 10px;font-size:11px" onclick="setTreeMode('lanes')">
+          <span>🌿</span> Branch Lanes
+        </button>
+        <button id="btn-tree-mode-hierarchy" class="btn" style="padding:4px 10px;font-size:11px" onclick="setTreeMode('hierarchy')">
+          <span>🌳</span> Top-Down Tree
+        </button>
+      </div>
+      <span class="badge badge-blue">N-ary Directed Tree</span>
+    </div>
   </div>
   <div style="font-size:13px;color:var(--text-muted);margin-bottom:16px;line-height:1.6">
     Every commit points back to its <code>parentId</code>. Branching occurs when multiple child commits share the same parent node.
@@ -439,62 +449,211 @@ function drawLinkedList() {
   });
 }
 
-// ── 2. COMMIT HISTORY TREE VISUALIZER ────────────────────────────────────────
+// ── 2. COMMIT HISTORY TREE VISUALIZER (Dual-Mode: Branch Lanes or Top-Down Tree) ─
+let currentTreeMode = 'lanes'; // 'lanes' or 'hierarchy'
+
+function setTreeMode(mode) {
+  currentTreeMode = mode;
+  const btnLanes = document.getElementById('btn-tree-mode-lanes');
+  const btnHier = document.getElementById('btn-tree-mode-hierarchy');
+  if (btnLanes) btnLanes.className = (mode === 'lanes') ? 'btn btn-accent' : 'btn';
+  if (btnHier) btnHier.className = (mode === 'hierarchy') ? 'btn btn-accent' : 'btn';
+  drawTree();
+}
+
 function drawTree() {
   const svg = document.getElementById('tree-svg');
   svg.innerHTML = '';
   if (!COMMITS.length) return;
 
-  // Build parent->children map
-  const children = {};
+  const ordered = [...COMMITS].sort((a, b) => a.id - b.id);
   const byId = {};
-  COMMITS.forEach(c => { byId[c.id] = c; children[c.id] = []; });
-  COMMITS.forEach(c => {
-    if (c.parentId !== -1 && byId[c.parentId]) {
+  const children = {};
+  ordered.forEach(c => { byId[c.id] = c; children[c.id] = []; });
+  ordered.forEach(c => {
+    if (c.parentId !== -1 && children[c.parentId]) {
       children[c.parentId].push(c.id);
     }
   });
 
-  // Find root commits
-  const roots = COMMITS.filter(c => c.parentId === -1 || !byId[c.parentId]).map(c => c.id);
+  // Sort children by ID
+  Object.values(children).forEach(list => list.sort((a, b) => a - b));
 
-  // Position calculation by BFS
+  const roots = ordered.filter(c => c.parentId === -1 || !byId[c.parentId]);
+  const NW = 148, NH = 54;
   const pos = {};
-  let col = 0;
-  const ROW_H = 110, COL_W = 190;
 
-  function place(id, row) {
-    if (pos[id]) return;
-    // Start at y = 80 to prevent any branch badge clipping at the top
-    pos[id] = { x: col * COL_W + 110, y: row * ROW_H + 80 };
-    col++;
-    children[id].forEach((cid, i) => place(cid, row + 1 + i));
-  }
-  roots.forEach(r => place(r, 0));
-
-  const allX = Object.values(pos).map(p => p.x);
-  const allY = Object.values(pos).map(p => p.y);
-  const maxX = (allX.length ? Math.max(...allX) : 200) + 140;
-  const maxY = (allY.length ? Math.max(...allY) : 200) + 90;
-
-  svg.setAttribute('width', Math.max(maxX, 400));
-  svg.setAttribute('height', Math.max(maxY, 280));
-
-  // 1. Draw connecting arrows from Parent -> Child
-  COMMITS.forEach(c => {
-    if (c.parentId !== -1 && pos[c.id] && pos[c.parentId]) {
-      const p1 = pos[c.parentId];
-      const p2 = pos[c.id];
-      // Draw smooth curve or direct line
-      drawArrow(svg, p1.x, p1.y + 28, p2.x, p2.y - 32, '#64748b');
+  if (currentTreeMode === 'lanes') {
+    // ═════════════════════════════════════════════════════════════════════════
+    // MODE 1: GIT BRANCH LANES (Horizontal Trunk & Tracks)
+    // ═════════════════════════════════════════════════════════════════════════
+    const depth = {};
+    function getDepth(id) {
+      if (depth[id] !== undefined) return depth[id];
+      const c = byId[id];
+      if (!c || c.parentId === -1 || !byId[c.parentId]) {
+        depth[id] = 0;
+      } else {
+        depth[id] = getDepth(c.parentId) + 1;
+      }
+      return depth[id];
     }
-  });
+    ordered.forEach(c => getDepth(c.id));
 
-  // 2. Draw Commit Nodes (Rounded Cards)
-  COMMITS.forEach(c => {
+    // Assign lanes: trunk continues on parent's lane; forks branch to new horizontal lanes
+    const laneMap = {};
+    let nextLane = 1;
+
+    function assignLanes(nodeId, currentLane) {
+      laneMap[nodeId] = currentLane;
+      const kids = children[nodeId] || [];
+      kids.forEach((kidId, idx) => {
+        if (idx === 0) {
+          assignLanes(kidId, currentLane);
+        } else {
+          const branchLane = nextLane++;
+          assignLanes(kidId, branchLane);
+        }
+      });
+    }
+    roots.forEach((r, idx) => assignLanes(r.id, idx));
+
+    const COL_W = 210, LANE_H = 120;
+    const START_X = 100, START_Y = 80;
+
+    let maxLane = 0;
+    ordered.forEach(c => {
+      const d = depth[c.id] || 0;
+      const lane = laneMap[c.id] || 0;
+      if (lane > maxLane) maxLane = lane;
+      pos[c.id] = {
+        x: d * COL_W + START_X,
+        y: lane * LANE_H + START_Y
+      };
+    });
+
+    const maxDepth = Object.values(depth).length ? Math.max(...Object.values(depth)) : 0;
+    const maxX = (maxDepth + 1) * COL_W + START_X + 80;
+    const maxY = (maxLane + 1) * LANE_H + START_Y + 50;
+
+    svg.setAttribute('width', Math.max(maxX, 400));
+    svg.setAttribute('height', Math.max(maxY, 260));
+
+    // Draw connecting arrows
+    ordered.forEach(c => {
+      if (c.parentId !== -1 && pos[c.id] && pos[c.parentId]) {
+        const p1 = pos[c.parentId];
+        const p2 = pos[c.id];
+        const x1 = p1.x + NW / 2;
+        const y1 = p1.y;
+        const x2 = p2.x - NW / 2 - 6;
+        const y2 = p2.y;
+
+        const isCurrentBranch = BRANCHES.some(b => b.current && (b.headId === c.id || b.headId === c.parentId));
+        const strokeColor = isCurrentBranch ? '#38bdf8' : '#64748b';
+        ensureArrowMarker(svg, strokeColor, 'arrow-' + strokeColor.replace('#',''));
+
+        if (Math.abs(y1 - y2) < 2) {
+          // Straight horizontal arrow along the same lane
+          svg.appendChild(el('line', {
+            x1, y1, x2, y2,
+            stroke: strokeColor,
+            'stroke-width': 2.5,
+            'marker-end': `url(#arrow-${strokeColor.replace('#','')})`
+          }));
+        } else {
+          // Smooth S-curve fork down to branch lane
+          const dx = Math.abs(x2 - x1) * 0.45;
+          const d = `M ${x1} ${y1} C ${x1 + dx} ${y1}, ${x2 - dx} ${y2}, ${x2} ${y2}`;
+          svg.appendChild(el('path', {
+            d: d,
+            fill: 'none',
+            stroke: strokeColor,
+            'stroke-width': 2.5,
+            'marker-end': `url(#arrow-${strokeColor.replace('#','')})`
+          }));
+        }
+      }
+    });
+
+  } else {
+    // ═════════════════════════════════════════════════════════════════════════
+    // MODE 2: TOP-DOWN HIERARCHICAL TREE (Classical CS N-ary Tree)
+    // ═════════════════════════════════════════════════════════════════════════
+    const NODE_SPACING_X = 180;
+    const LEVEL_H = 130;
+    let leafCursor = 0;
+
+    function layoutHierarchy(nodeId, level) {
+      const kids = children[nodeId] || [];
+      if (!kids.length) {
+        pos[nodeId] = {
+          x: leafCursor * NODE_SPACING_X + 110,
+          y: level * LEVEL_H + 80
+        };
+        leafCursor++;
+      } else {
+        kids.forEach(k => layoutHierarchy(k, level + 1));
+        const firstX = pos[kids[0]].x;
+        const lastX = pos[kids[kids.length - 1]].x;
+        pos[nodeId] = {
+          x: (firstX + lastX) / 2,
+          y: level * LEVEL_H + 80
+        };
+      }
+    }
+    roots.forEach(r => layoutHierarchy(r.id, 0));
+
+    const allX = Object.values(pos).map(p => p.x);
+    const allY = Object.values(pos).map(p => p.y);
+    const minX = allX.length ? Math.min(...allX) : 100;
+    const maxX = (allX.length ? Math.max(...allX) : 200) + NW/2 + 80;
+    const maxY = (allY.length ? Math.max(...allY) : 200) + NH/2 + 50;
+
+    const offsetX = minX < 110 ? (110 - minX) : 0;
+    if (offsetX > 0) {
+      Object.values(pos).forEach(p => { p.x += offsetX; });
+    }
+
+    svg.setAttribute('width', Math.max(maxX + offsetX, 500));
+    svg.setAttribute('height', Math.max(maxY, 280));
+
+    // Draw connecting arrows from parent bottom to child top
+    ordered.forEach(c => {
+      if (c.parentId !== -1 && pos[c.id] && pos[c.parentId]) {
+        const p1 = pos[c.parentId];
+        const p2 = pos[c.id];
+        const isCurrentBranch = BRANCHES.some(b => b.current && (b.headId === c.id || b.headId === c.parentId));
+        const strokeColor = isCurrentBranch ? '#38bdf8' : '#64748b';
+        ensureArrowMarker(svg, strokeColor, 'arrow-' + strokeColor.replace('#',''));
+
+        if (Math.abs(p1.x - p2.x) < 2) {
+          // Direct vertical downward arrow
+          drawArrow(svg, p1.x, p1.y + NH/2, p2.x, p2.y - NH/2 - 6, strokeColor);
+        } else {
+          // Angled/curved fork downward
+          const x1 = p1.x, y1 = p1.y + NH/2;
+          const x2 = p2.x, y2 = p2.y - NH/2 - 6;
+          const dy = (y2 - y1) * 0.5;
+          const d = `M ${x1} ${y1} C ${x1} ${y1 + dy}, ${x2} ${y2 - dy}, ${x2} ${y2}`;
+          svg.appendChild(el('path', {
+            d: d,
+            fill: 'none',
+            stroke: strokeColor,
+            'stroke-width': 2.5,
+            'marker-end': `url(#arrow-${strokeColor.replace('#','')})`
+          }));
+        }
+      }
+    });
+  }
+
+  // ═════════════════════════════════════════════════════════════════════════
+  // SHARED: DRAW COMMIT NODES (ROUNDED CARDS)
+  // ═════════════════════════════════════════════════════════════════════════
+  ordered.forEach(c => {
     if (!pos[c.id]) return;
     const {x, y} = pos[c.id];
-    const NW = 144, NH = 56;
 
     // Check if this commit is HEAD of current branch
     const isCurrentHead = BRANCHES.some(b => b.current && b.headId === c.id);
@@ -537,7 +696,9 @@ function drawTree() {
     }, shortMsg));
   });
 
-  // 3. Draw Branch Labels directly above the corresponding head commits
+  // ═════════════════════════════════════════════════════════════════════════
+  // SHARED: DRAW BRANCH LABELS DIRECTLY ABOVE HEAD COMMITS
+  // ═════════════════════════════════════════════════════════════════════════
   const branchesByHead = {};
   BRANCHES.forEach(b => {
     if (b.headId !== -1 && pos[b.headId]) {
@@ -548,11 +709,13 @@ function drawTree() {
 
   Object.entries(branchesByHead).forEach(([headId, bList]) => {
     const {x, y} = pos[headId];
+    bList.sort((a, b) => (b.current ? 1 : 0) - (a.current ? 1 : 0));
+
     bList.forEach((b, idx) => {
-      const badgeY = y - 44 - (idx * 22);
       const isCur = b.current;
       const labelText = isCur ? `★ ${b.name} (HEAD)` : b.name;
       const badgeW = labelText.length * 7.5 + 18;
+      const badgeY = y - 44 - (idx * 22);
 
       const bg = el('rect', {
         x: x - badgeW / 2,
@@ -864,17 +1027,21 @@ function escHtml(s) {
 
 async function refresh() {
   try {
-    const [logResp, branchResp] = await Promise.all([
-      fetch(`/api/${REPO}/log`),
-      fetch(`/api/${REPO}/branches`)
+    const [commitsResp, branchResp, undoResp] = await Promise.all([
+      fetch(`/api/${REPO}/commits`),
+      fetch(`/api/${REPO}/branches`),
+      fetch(`/api/${REPO}/undo`)
     ]);
-    const logData = await logResp.json();
+    const commitsData = await commitsResp.json();
     const branchData = await branchResp.json();
+    const undoData = await undoResp.json();
 
     COMMITS.length = 0;
-    (logData.commits || []).forEach(c => COMMITS.push(c));
+    (commitsData.commits || []).forEach(c => COMMITS.push(c));
     BRANCHES.length = 0;
     (branchData.branches || []).forEach(b => BRANCHES.push(b));
+    UNDO.length = 0;
+    (undoData.undo_stack || []).forEach(u => UNDO.push(u));
 
     drawAll();
   } catch (e) {

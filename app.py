@@ -187,6 +187,37 @@ def list_repos():
     ]
 
 
+def get_all_commits(repo_name):
+    """
+    Read all commits from .minigit/commits.dat in chronological order.
+    Ensures all branches and branching history are included in visualizer and commit details.
+    """
+    minigit_path = os.path.join(REPOS_DIR, repo_name, ".minigit")
+    commits_file = os.path.join(minigit_path, "commits.dat")
+    commits = []
+    if os.path.isfile(commits_file):
+        with open(commits_file, encoding="utf-8", errors="replace") as f:
+            for line in f:
+                parts = line.strip().split("|")
+                if len(parts) >= 4:
+                    try:
+                        cid = int(parts[0])
+                        pid = int(parts[1])
+                        ts = int(parts[2])
+                        msg = "|".join(parts[3:])
+                        commits.append({
+                            "id": cid,
+                            "parentId": pid,
+                            "timestamp": ts,
+                            "message": msg
+                        })
+                    except ValueError:
+                        pass
+    if not commits:
+        commits = run(["log"], repo_name=repo_name).get("commits", [])
+    return commits
+
+
 # ── routes ────────────────────────────────────────────────────────────────────
 
 @app.route("/")
@@ -209,8 +240,7 @@ def repo(name):
 
 @app.route("/repo/<name>/commit/<int:cid>")
 def commit_detail(name, cid):
-    log_data = run(["log"], repo_name=name)
-    commits  = log_data.get("commits", [])
+    commits  = get_all_commits(name)
 
     # find this commit and its parent
     target = next((c for c in commits if c["id"] == cid), None)
@@ -245,10 +275,9 @@ def branches(name):
 
 @app.route("/repo/<name>/visualizer")
 def visualizer(name):
-    log_data      = run(["log"], repo_name=name)
+    commits       = get_all_commits(name)
     branches_data = run(["branches"], repo_name=name)
-    commits  = log_data.get("commits", [])
-    branches = branches_data.get("branches", [])
+    branches      = branches_data.get("branches", [])
 
     # undo stack: read undo.dat directly
     undo_stack = []
@@ -272,7 +301,14 @@ def visualizer(name):
 
 @app.route("/api/<name>/log")
 def api_log(name):
+    if request.args.get("all") == "1":
+        return jsonify({"commits": get_all_commits(name)})
     return jsonify(run(["log"], repo_name=name))
+
+
+@app.route("/api/<name>/commits")
+def api_commits(name):
+    return jsonify({"commits": get_all_commits(name)})
 
 
 @app.route("/api/<name>/branches")
@@ -283,6 +319,24 @@ def api_branches(name):
 @app.route("/api/<name>/diff/<int:id1>/<int:id2>/<path:fname>")
 def api_diff(name, id1, id2, fname):
     return jsonify(run(["diff", str(id1), str(id2), fname], repo_name=name))
+
+
+@app.route("/api/<name>/undo")
+def api_undo(name):
+    undo_stack = []
+    undo_path = os.path.join(REPOS_DIR, name, ".minigit", "undo.dat")
+    if os.path.isfile(undo_path):
+        with open(undo_path, encoding="utf-8", errors="replace") as f:
+            for line in f:
+                line = line.strip()
+                if "|" in line:
+                    parts = line.split("|")
+                    if len(parts) >= 2:
+                        try:
+                            undo_stack.append({"branch": parts[0], "headId": int(parts[1])})
+                        except ValueError:
+                            pass
+    return jsonify({"undo_stack": undo_stack})
 
 
 # ── push endpoint ─────────────────────────────────────────────────────────────
@@ -313,12 +367,14 @@ def push(name):
         if not os.path.isfile(commits_path):
             return jsonify({"error": "invalid repo: missing commits.dat"}), 400
 
-        # fast-forward check if repo already exists
+        # fast-forward / preservation check if repo already exists
         if os.path.isdir(dest_dir):
             existing_log = run(["log"], repo_name=name)
             existing_commits = existing_log.get("commits", [])
 
-            if existing_commits:
+            is_force = request.form.get("force") == "true" or request.args.get("force") == "true"
+
+            if existing_commits and not is_force:
                 server_head = existing_commits[0]["id"]
 
                 # read pushed commits
@@ -327,28 +383,34 @@ def push(name):
                     for line in f:
                         parts = line.strip().split("|")
                         if len(parts) >= 2:
-                            cid = int(parts[0])
-                            pid = int(parts[1])
-                            pushed_commits[cid] = pid
+                            try:
+                                cid = int(parts[0])
+                                pid = int(parts[1])
+                                pushed_commits[cid] = pid
+                            except ValueError:
+                                pass
 
-                # walk from pushed head's latest commit back through parents
-                # find the latest id in pushed
-                if pushed_commits:
-                    pushed_head = max(pushed_commits.keys())
-                    current = pushed_head
+                # If server_head is preserved in pushed_commits (e.g. on another branch), push is valid!
+                if pushed_commits and (server_head not in pushed_commits):
+                    # Check if server_head is an ancestor of any pushed commit
                     found = False
-                    seen = set()
-                    while current != -1 and current not in seen:
-                        if current == server_head:
-                            found = True
+                    for p_head in pushed_commits.keys():
+                        current = p_head
+                        seen = set()
+                        while current != -1 and current not in seen:
+                            if current == server_head:
+                                found = True
+                                break
+                            seen.add(current)
+                            current = pushed_commits.get(current, -1)
+                        if found:
                             break
-                        seen.add(current)
-                        current = pushed_commits.get(current, -1)
 
                     if not found:
-                        return jsonify({"error": "not a fast-forward push. Pull first."}), 409
+                        return jsonify({"error": "not a fast-forward push. Use 'python push.py <repo> --force' to overwrite."}), 409
 
-            # replace existing repo
+        # replace existing repo
+        if os.path.isdir(dest_dir):
             shutil.rmtree(dest_dir)
 
         # move temp to final destination

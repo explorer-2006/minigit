@@ -370,249 +370,228 @@ void save_branches() {
 }
 
 void load_head() {
-    // open .minigit/HEAD for reading
-    // if file doesn't exist, just return
-    // read the branch name into currentBranch
-    // close the file
-
-    char path[1024];
-    sprintf(path, "%s/.minigit/HEAD", repoPath);
-    FILE *pFile = fopen(path, "r");
-    if(pFile == NULL){
-        return;
+    char path[1024];                                        // buffer for HEAD file path
+    sprintf(path, "%s/.minigit/HEAD", repoPath);            // construct path to HEAD
+    FILE *pFile = fopen(path, "r");                         // open HEAD file for reading
+    if (pFile == NULL) {                                    // if file doesn't exist or cannot be read
+        return;                                             // exit gracefully without changing currentBranch
     }
 
-    fscanf(pFile, "%s", currentBranch);
-    fclose(pFile);
+    fscanf(pFile, "%s", currentBranch);                     // read active branch name into global currentBranch
+    fclose(pFile);                                          // close HEAD file
 }
 
 void save_head() {
-    // open .minigit/HEAD for writing
-    // if file open fails, print error and return
-    // write currentBranch to the file
-    // close the file
-    char path[1024];
-    sprintf(path, "%s/.minigit/HEAD", repoPath);
-    FILE *pFile = fopen(path, "w");
-    if(pFile == NULL){
-        return;
+    char path[1024];                                        // buffer for HEAD file path
+    sprintf(path, "%s/.minigit/HEAD", repoPath);            // construct path to HEAD
+    FILE *pFile = fopen(path, "w");                         // open HEAD file for writing (overwrite)
+    if (pFile == NULL) {                                    // check if file open failed
+        return;                                             // return on failure
     }
 
-    fprintf(pFile, "%s", currentBranch);
-    fclose(pFile);
+    fprintf(pFile, "%s", currentBranch);                    // persist currentBranch name into HEAD file
+    fclose(pFile);                                          // close HEAD file
 }
 
 void push_undo(const char *branch, int previousHeadId) {
-    // open .minigit/undo.dat in append mode ("a")
-    // if file open fails, print error and return
-    // write: branch|previousHeadId\n
-    // close the file
-    char path[1024];
-    sprintf(path, "%s/.minigit/undo.dat", repoPath);
-    FILE *pFile = fopen(path, "a");
-    if(pFile == NULL){
-        return;
+    char path[1024];                                        // buffer for undo.dat file path
+    sprintf(path, "%s/.minigit/undo.dat", repoPath);        // build path to undo stack file
+    FILE *pFile = fopen(path, "a");                         // open in append mode to push to stack
+    if (pFile == NULL) {                                    // handle file open failure
+        return;                                             // return if file cannot be opened
     }
 
-    fprintf(pFile, "%s|%d\n",branch, previousHeadId);
-    fclose(pFile);
+    fprintf(pFile, "%s|%d\n", branch, previousHeadId);      // push branch and previous HEAD ID onto stack
+    fclose(pFile);                                          // close undo file
 }
 
 int pop_undo(char *branchOut) {
-    // open .minigit/undo.dat for reading
-    // if file open fails or is empty, return -1
-    // if no lines, return -1
+    typedef struct commitNodes {                            // temporary linked list node for stack entries
+        char branchName[30];                                // stores branch name of undo frame
+        int previousHeadId;                                 // stores target head commit ID to restore
+        struct commitNodes *next;                           // pointer to next stack entry
+    } commitNodes;
 
-    // parse the last line: branch|previousHeadId
-    // store branch name into branchOut
-    // store previousHeadId
+    commitNodes *headCommit = NULL;                         // head of temporary undo list
+    commitNodes *tailCommit = NULL;                         // tail of temporary undo list (top of stack)
+    commitNodes *temp;                                      // iterator pointer
+    char line[256];                                         // line buffer for reading undo.dat
 
-    // rewrite the file with all lines except the last one
-
-    // return previousHeadId
-
-    typedef struct commitNodes 
-    {
-        char branchName[30];
-        int previousHeadId;
-        struct commitNodes *next;
-    }commitNodes;
-
-    commitNodes *headCommit = NULL;
-    commitNodes *tailCommit = NULL;
-    commitNodes *temp;
-    char branchName[30];
-    int previousHeadId;
-
-    char path[1024];
-    sprintf(path, "%s/.minigit/undo.dat", repoPath);
-    FILE *pFile = fopen(path, "r");
-    if(pFile == NULL){
-        return -1;
+    char path[1024];                                        // buffer for file path
+    sprintf(path, "%s/.minigit/undo.dat", repoPath);        // construct path to undo.dat
+    FILE *pFile = fopen(path, "r");                         // open undo stack file for reading
+    if (pFile == NULL) {                                    // if file doesn't exist
+        return -1;                                          // return -1 (stack is empty)
     }
     
-    while (fscanf(pFile, "%[^|]|%d", branchName, &previousHeadId) == 2){
-        commitNodes *newNode = (commitNodes*)calloc(1, sizeof(commitNodes));
-        strcpy(newNode->branchName, branchName);
-        newNode->previousHeadId = previousHeadId;
-        newNode->next = NULL;
+    while (fgets(line, sizeof(line), pFile)) {              // read undo.dat line by line
+        line[strcspn(line, "\r\n")] = '\0';                 // strip trailing newline and carriage return
+        if (line[0] == '\0') continue;                      // skip empty lines safely
 
-        if(headCommit == NULL){
-            headCommit = tailCommit = newNode;
+        char *sep = strchr(line, '|');                      // find delimiter separating branch and headId
+        if (!sep) continue;                                 // skip malformed lines
+        *sep = '\0';                                        // split line into branch string and headId string
+
+        commitNodes *newNode = (commitNodes*)calloc(1, sizeof(commitNodes)); // allocate memory for new frame
+        if (!newNode) continue;                             // safety check on allocation
+        strncpy(newNode->branchName, line, sizeof(newNode->branchName) - 1); // store branch name
+        newNode->previousHeadId = atoi(sep + 1);             // convert and store previousHeadId
+        newNode->next = NULL;                               // initialize next pointer to NULL
+
+        if (headCommit == NULL) {                           // if list is currently empty
+            headCommit = tailCommit = newNode;              // first node becomes both head and tail
+        } else {
+            tailCommit->next = newNode;                     // append new node at the tail
+            tailCommit = newNode;                           // update tail pointer to new node
         }
-        else{
-            tailCommit->next = newNode;
-            tailCommit = newNode;
+    }
+    fclose(pFile);                                          // close read file handle
+
+    if (headCommit == NULL) {                               // if no valid entries were found in stack
+        return -1;                                          // return -1 indicating empty undo stack
+    }
+
+    strcpy(branchOut, tailCommit->branchName);               // copy popped branch name into output buffer
+    int returnValue = tailCommit->previousHeadId;           // save popped previousHeadId to return
+
+    pFile = fopen(path, "w");                               // open undo.dat in write mode to rewrite stack
+    if (pFile != NULL) {
+        temp = headCommit;                                  // start from base of stack
+        while (temp != tailCommit) {                        // write all frames EXCEPT the last (popped) frame
+            fprintf(pFile, "%s|%d\n", temp->branchName, temp->previousHeadId); // persist frame to file
+            temp = temp->next;                              // advance to next node
         }
+        fclose(pFile);                                      // close written file handle
     }
 
-    if(headCommit == NULL){
-        fclose(pFile);
-        return -1;
-    }
-    fclose(pFile);
-
-    strcpy(branchOut, tailCommit->branchName);
-    int returnValue = tailCommit->previousHeadId;
- 
-    pFile = fopen(path, "w");
-    temp = headCommit;
-    while(temp != tailCommit){
-        fprintf(pFile, "%s|%d\n",temp->branchName,temp->previousHeadId);
-        temp = temp->next;
-    }
-
-    fclose(pFile);
-
-    temp = headCommit;
+    temp = headCommit;                                      // free the temporary linked list memory
     while (temp != NULL) {
-        commitNodes *next = temp->next;
-        free(temp);
-        temp = next;
+        commitNodes *next = temp->next;                     // remember next node
+        free(temp);                                         // free current node
+        temp = next;                                        // move forward
     }
     
-    return returnValue;
+    return returnValue;                                     // return popped previousHeadId
 }
 
 void cmd_undo() {
-    load_branches();
-    load_head();
+    load_branches();                                        // load all branch heads into linked list
+    load_head();                                            // load active branch name into currentBranch
 
-    char branchName[30];
-    int previousHeadId = pop_undo(branchName);
+    char branchName[30];                                    // buffer to receive popped branch name
+    int previousHeadId = pop_undo(branchName);              // pop top frame off undo stack
 
-    if(previousHeadId == -1){
-        printf("Nothing to undo.\n");
-        return;
-    }
-
-    if(strcmp(branchName, currentBranch) != 0){
-        printf("Last undo entry is for a different branch.\n");
-        return;
-    }
-
-    Branch *temp = branchHead;
-    int found = 0;
-
-    while (temp != NULL) {
-        if(strcmp(temp->name, branchName) == 0){
-            found = 1;
-            break;
+    if (previousHeadId == -1) {                             // check if stack was empty
+        if (jsonOutput) {
+            printf("{\"error\": \"Nothing to undo.\"}\n");  // JSON output on empty stack
+        } else {
+            printf("Nothing to undo.\n");                   // terminal output on empty stack
         }
-        temp = temp->next;
+        return;                                             // exit function
     }
 
-    if(!found){
-        printf("Error: branch not found.\n");
-        return;
+    if (strcmp(branchName, currentBranch) != 0) {           // verify popped frame matches current active branch
+        push_undo(branchName, previousHeadId);              // preserve stack frame so it is not lost
+
+        if (jsonOutput) {
+            printf("{\"error\": \"Last undo entry is for branch '%s'. Switch to '%s' to undo.\"}\n", branchName, branchName); // JSON error
+        } else {
+            printf("Last undo entry is for branch '%s'. Switch to '%s' to undo.\n", branchName, branchName); // guidance
+        }
+        return;                                             // exit function
     }
 
-    temp->headId = previousHeadId;
-    save_branches();
+    Branch *temp = branchHead;                              // pointer to search for branch in linked list
+    int found = 0;                                          // flag tracking whether branch was located
 
-    printf("Undo successful, now at commit %d.\n", previousHeadId);
+    while (temp != NULL) {                                  // traverse branch linked list
+        if (strcmp(temp->name, branchName) == 0) {          // match branch by name
+            found = 1;                                      // mark found
+            break;                                          // stop searching
+        }
+        temp = temp->next;                                  // advance to next branch node
+    }
+
+    if (!found) {                                           // handle unexpected missing branch
+        if (jsonOutput) {
+            printf("{\"error\": \"branch not found.\"}\n"); // JSON error
+        } else {
+            printf("Error: branch not found.\n");           // terminal error
+        }
+        return;                                             // exit function
+    }
+
+    temp->headId = previousHeadId;                          // update branch HEAD pointer to previous commit ID
+    save_branches();                                        // persist updated branch HEAD to branches.dat
+
+    if (previousHeadId != -1) {                             // if previous commit exists (not root initialization)
+        char snapshotPath[1024];                            // buffer for snapshot directory path
+        sprintf(snapshotPath, "%s/.minigit/snapshots/%d", repoPath, previousHeadId); // build snapshot path
+        copy_dir(snapshotPath, repoPath);                   // restore snapshot files back into working directory
+    }
+
+    if (jsonOutput) {
+        printf("{\"success\": true, \"headId\": %d}\n", previousHeadId); // JSON confirmation
+    } else {
+        printf("Undo successful, now at commit %d.\n", previousHeadId);   // terminal success message
+    }
 }
 
 void cmd_revert(int id, int force) {
-    // load commits, branches, head
+    load_commits();                                         // load all commits into commit linked list
+    load_branches();                                        // load branches into branch linked list
+    load_head();                                            // load active branch from HEAD file
+    int found = 0;                                          // flag tracking if target commit exists
+    char snapshotPath[1024];                                // buffer for target snapshot path
 
-    // find the commit with the given id in commitHead list
-    // if not found, print "commit <id> not found" and return
-
-    // if force == 0, check staging.dat
-        // if staging has content, print "staged changes exist, use --force" and return
-
-    // build snapshot path: .minigit/snapshots/<id>/
-    // copy_dir(snapshotPath, ".")
-
-    // find current branch in branchHead list
-    // set branch->headId = id
-    // save_branches()
-
-    // push_undo(currentBranch, previous headId)  // so you can undo the revert
-
-    // print "reverted to commit <id>"
-
-    load_commits();
-    load_branches();
-    load_head();
-    int found = 0;
-    char snapshotPath[1024];
-
-    Commit *temp;
-    temp = commitHead;
-
-    while (temp != NULL)
-    {
-        if(temp->id == id){
-            found = 1;
-            break;
+    Commit *temp = commitHead;                              // start traversal from head of commit list
+    while (temp != NULL) {                                  // search for target commit ID in list
+        if (temp->id == id) {                               // check if current commit matches target ID
+            found = 1;                                      // target commit found
+            break;                                          // exit search loop
         }
-        temp = temp->next;
+        temp = temp->next;                                  // move to next commit node
     }
 
-    if(!found){
-        printf("commit <%d> not found", id);
-        return;
+    if (!found) {                                           // if target commit was not found in history
+        printf("commit <%d> not found", id);                // print error message
+        return;                                             // abort revert
     }
 
-    if(force == 0){
-        char stagingPath[1024];
-        sprintf(stagingPath, "%s/.minigit/staging.dat", repoPath);
-        FILE *pFile = fopen(stagingPath, "r");
+    if (force == 0) {                                       // if --force flag was not provided
+        char stagingPath[1024];                             // buffer for staging file path
+        sprintf(stagingPath, "%s/.minigit/staging.dat", repoPath); // build path to staging.dat
+        FILE *pFile = fopen(stagingPath, "r");              // open staging.dat to check for uncommitted changes
 
-        if(pFile == NULL){
-            printf("error opening staging file");
-            return;
+        if (pFile == NULL) {                                // handle staging file open error
+            printf("error opening staging file");           // print file error
+            return;                                         // abort revert
         }
 
-        if(fgetc(pFile) != EOF){
-            printf("staged changes exist, use --force");
-            fclose(pFile);
-            return;
+        if (fgetc(pFile) != EOF) {                          // check if staging file has any staged files
+            printf("staged changes exist, use --force");    // warn user about uncommitted staged files
+            fclose(pFile);                                  // close staging file
+            return;                                         // refuse revert unless --force is used
         }
-        
+        fclose(pFile);                                      // close staging file handle
     }
 
-    sprintf(snapshotPath, "%s/.minigit/snapshots/%d", repoPath, id);
-        copy_dir(snapshotPath, repoPath);
+    sprintf(snapshotPath, "%s/.minigit/snapshots/%d", repoPath, id); // build path to target snapshot folder
+    copy_dir(snapshotPath, repoPath);                       // copy all snapshot files into working directory
 
-        Branch *tempBranch;
-        tempBranch = branchHead;
-
-        while (tempBranch != NULL) {
-            if (strcmp(tempBranch->name, currentBranch) == 0) {
-                int previousHeadId = tempBranch->headId; 
-                tempBranch->headId = id;
-                save_branches();
-                push_undo(currentBranch, previousHeadId);
-                break;
-            }
-            tempBranch = tempBranch->next;
+    Branch *tempBranch = branchHead;                        // pointer to find active branch node
+    while (tempBranch != NULL) {                            // traverse branch linked list
+        if (strcmp(tempBranch->name, currentBranch) == 0) { // locate current checked-out branch
+            int previousHeadId = tempBranch->headId;        // record previous headId before changing
+            tempBranch->headId = id;                        // update branch head to reverted commit ID
+            save_branches();                                // persist updated headId to branches.dat
+            push_undo(currentBranch, previousHeadId);       // push old head onto undo stack so revert can be undone
+            break;                                          // done updating branch
         }
+        tempBranch = tempBranch->next;                      // move to next branch
+    }
 
-        printf("reverted to commit <%d>\n", id);
-    
+    printf("reverted to commit <%d>\n", id);                // print confirmation message
 }
 
 void cmd_add(const char *file) {
@@ -1175,117 +1154,87 @@ void cmd_search(const char *keyword) {
 }
 
 void cmd_diff(int id1, int id2, const char *file) {
-    // build path to file in snapshot id1: .minigit/snapshots/<id1>/<file>
-    // build path to file in snapshot id2: .minigit/snapshots/<id2>/<file>
+    char snapshotPath1[1024];                               // buffer for file path in first snapshot
+    char snapshotPath2[1024];                               // buffer for file path in second snapshot
+    sprintf(snapshotPath1, "%s/.minigit/snapshots/%d/%s", repoPath, id1, file); // construct path for commit id1
+    sprintf(snapshotPath2, "%s/.minigit/snapshots/%d/%s", repoPath, id2, file); // construct path for commit id2
 
-    // open both files, if either fails print error and return
+    FILE *pFile1 = fopen(snapshotPath1, "r");               // open commit id1 snapshot file for reading
+    FILE *pFile2 = fopen(snapshotPath2, "r");               // open commit id2 snapshot file for reading
 
-    // read lines of file1 into array A, count = n
-    // read lines of file2 into array B, count = m
+    if (pFile1 == NULL) {                                   // verify first file opened successfully
+        printf("error opening the first file!!");           // print error message
+        return;                                             // exit function
+    } else if (pFile2 == NULL) {                            // verify second file opened successfully
+        printf("error opening the second file!!");          // print error message
+        fclose(pFile1);                                     // close first opened file
+        return;                                             // exit function
+    }
 
-    // close both files
+    char A[200][256];                                       // array storing lines of file 1 (old version)
+    char B[200][256];                                       // array storing lines of file 2 (new version)
+    int n = 0, m = 0;                                       // line counters for file 1 and file 2
 
-    // build LCS table c[n+1][m+1], initialize all to 0
-    // fill the table using the recurrence:
-        // for i = 1 to n:
-            // for j = 1 to m:
-                // if A[i-1] == B[j-1]: c[i][j] = 1 + c[i-1][j-1]
-                // else: c[i][j] = max(c[i][j-1], c[i-1][j])
+    while (n < 200 && fgets(A[n], sizeof(A[n]), pFile1) != NULL) { // read lines of file 1 into array A
+        A[n][strcspn(A[n], "\r\n")] = '\0';                 // strip trailing newline and carriage return
+        n++;                                                // increment line count for file 1
+    }
 
-    // traceback to print the diff:
-        // start at i=n, j=m
-        // if A[i-1] == B[j-1]: print "  <line>", move i-1, j-1
-        // else if c[i-1][j] > c[i][j-1]: print "- <line>", move i-1
-        // else: print "+ <line>", move j-1
+    while (m < 200 && fgets(B[m], sizeof(B[m]), pFile2) != NULL) { // read lines of file 2 into array B
+        B[m][strcspn(B[m], "\r\n")] = '\0';                 // strip trailing newline and carriage return
+        m++;                                                // increment line count for file 2
+    }
 
-        char snapshotPath1[1024];
-        char snapshotPath2[1024];
-        sprintf(snapshotPath1, "%s/.minigit/snapshots/%d/%s", repoPath, id1, file);
-        sprintf(snapshotPath2, "%s/.minigit/snapshots/%d/%s", repoPath, id2, file);
+    fclose(pFile1);                                         // close file 1 handle
+    fclose(pFile2);                                         // close file 2 handle
 
-        FILE *pFile1 = fopen(snapshotPath1, "r");
-        FILE *pFile2 = fopen(snapshotPath2, "r");
+    int c[n+1][m+1];                                        // 2D memoization table for LCS DP algorithm
+    memset(c, 0, sizeof(c));                                // initialize all DP matrix cells to 0
 
-        if(pFile1 == NULL){
-            printf("error opening the first file!!");
-            return;
-        }
-        else if (pFile2 == NULL){
-            printf("error opening the second file!!");
-            fclose(pFile1);
-            return;
-        }
-
-        char A[200][256];  // up to 200 lines, 256 chars each
-        char B[200][256];
-        int n = 0, m = 0;
-
-        while (n < 200 && fgets(A[n], sizeof(A[n]), pFile1) != NULL) {
-            A[n][strcspn(A[n], "\r\n")] = '\0';  // strip newline
-            n++;
-        }
-
-        while (m < 200 && fgets(B[m], sizeof(B[m]), pFile2) != NULL) {
-            B[m][strcspn(B[m], "\r\n")] = '\0';
-            m++;
-        }
-
-        fclose(pFile1);
-        fclose(pFile2);
-
-        int c[n+1][m+1];
-        memset(c, 0, sizeof(c));
-
-        for(int i = 1; i <= n; i++){
-            for(int j = 1; j <= m; j++){
-                if (strcmp(A[i-1], B[j-1]) == 0){
-                    c[i][j] = 1 + c[i-1][j-1];
-                }
-                else{
-                    c[i][j] = c[i][j-1] > c[i-1][j] ? c[i][j-1] : c[i-1][j];
-                }
+    for (int i = 1; i <= n; i++) {                          // iterate through lines of file 1
+        for (int j = 1; j <= m; j++) {                      // iterate through lines of file 2
+            if (strcmp(A[i-1], B[j-1]) == 0) {              // if lines match: extend longest common subsequence
+                c[i][j] = 1 + c[i-1][j-1];                  // recurrence: diagonal cell + 1
+            } else {                                        // if lines differ: take maximum of adjacent cells
+                c[i][j] = c[i][j-1] > c[i-1][j] ? c[i][j-1] : c[i-1][j]; // recurrence: max(left, top)
             }
         }
+    }
 
-        char diff[400][260];  // stores diff lines
-        char prefix[400];     // stores '+', '-', or ' ' for each line
-        int diffCount = 0;
+    char diff[400][260];                                    // stores generated diff output lines
+    char prefix[400];                                       // stores diff prefix symbol (' ', '+', '-')
+    int diffCount = 0;                                      // total number of diff entries
 
-        int i = n, j = m;
-        while (i > 0 || j > 0) {
-            if (i > 0 && j > 0 && strcmp(A[i-1], B[j-1]) == 0) {
-                strcpy(diff[diffCount], A[i-1]);
-                prefix[diffCount] = ' ';
-                i--;j--;
-            } 
-            else if (i > 0 && (j == 0 || c[i-1][j] > c[i][j-1])) {
-                strcpy(diff[diffCount], A[i-1]);
-                prefix[diffCount] = '-';
-                i--;
-            } 
-            else {
-                strcpy(diff[diffCount], B[j-1]);
-                prefix[diffCount] = '+';
-                j--;
-            }
-            diffCount++;
+    int i = n, j = m;                                       // backtrack pointers starting at bottom-right of DP table
+    while (i > 0 || j > 0) {                                // backtrack through memoization table to construct diff
+        if (i > 0 && j > 0 && strcmp(A[i-1], B[j-1]) == 0) { // matching line in both versions (context line)
+            strcpy(diff[diffCount], A[i-1]);                // record unchanged line content
+            prefix[diffCount] = ' ';                        // ' ' prefix signifies identical context line
+            i--; j--;                                       // move diagonally backward in DP table
+        } else if (i > 0 && (j == 0 || c[i-1][j] > c[i][j-1])) { // line deleted in new version
+            strcpy(diff[diffCount], A[i-1]);                // record removed line content
+            prefix[diffCount] = '-';                        // '-' prefix signifies deleted line
+            i--;                                            // move up in DP table
+        } else {                                            // line added in new version
+            strcpy(diff[diffCount], B[j-1]);                // record newly inserted line content
+            prefix[diffCount] = '+';                        // '+' prefix signifies added line
+            j--;                                            // move left in DP table
         }
+        diffCount++;                                        // increment diff lines counter
+    }
 
-        // print in reverse
-        if (jsonOutput) {
-            printf("{\"diff\": [");
-            for (int k = diffCount - 1; k >= 0; k--) {
-                printf("{\"prefix\": \"%c\", \"line\": \"%s\"}", prefix[k], diff[k]);
-                if (k > 0) printf(",");
-            }
-            printf("]}");
-        } 
-        else {
-            for (int k = diffCount - 1; k >= 0; k--) {
-                printf("%c %s\n", prefix[k], diff[k]);
-            }
+    if (jsonOutput) {                                       // format output as JSON if requested by web server
+        printf("{\"diff\": [");                             // opening JSON diff array
+        for (int k = diffCount - 1; k >= 0; k--) {          // print in reverse (chronological forward order)
+            printf("{\"prefix\": \"%c\", \"line\": \"%s\"}", prefix[k], diff[k]); // diff item JSON object
+            if (k > 0) printf(",");                         // comma separator between elements
         }
-        
+        printf("]}");                                       // closing JSON array
+    } else {                                                // standard terminal diff format
+        for (int k = diffCount - 1; k >= 0; k--) {          // print in reverse (chronological forward order)
+            printf("%c %s\n", prefix[k], diff[k]);          // output format e.g. "+ line" or "- line"
+        }
+    }
 }
 
 
@@ -1425,8 +1374,6 @@ int main(int argc, char *argv[])
         printf("Unknown command: %s\n", argv[1]);
         return 1;
     }
-
     
-
     return 0;
 }

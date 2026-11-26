@@ -19,5 +19,4 @@ repos/
 
 # Temporary test files
 test.txt
-file1.txt
-file2.txt
+file*.txt

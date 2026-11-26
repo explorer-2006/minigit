@@ -18,7 +18,7 @@ import requests
 DEFAULT_SERVER = "http://127.0.0.1:5000"
 
 
-def push(repo_name, server_url):
+def push(repo_name, server_url, force=False):
     minigit_dir = ".minigit"
     if not os.path.isdir(minigit_dir):
         print("Error: no .minigit folder found. Run 'minigit init' first.")
@@ -38,8 +38,13 @@ def push(repo_name, server_url):
     print(f"Pushing '{repo_name}' to {server_url} ...")
 
     url = f"{server_url}/repo/{repo_name}/push"
+    data = {"force": "true"} if force else {}
     with open(tmp_path, "rb") as f:
-        response = requests.post(url, files={"file": (f"{repo_name}.zip", f, "application/zip")})
+        response = requests.post(
+            url,
+            files={"file": (f"{repo_name}.zip", f, "application/zip")},
+            data=data
+        )
 
     os.remove(tmp_path)
 
@@ -56,10 +61,13 @@ def push(repo_name, server_url):
 
 
 if __name__ == "__main__":
-    if len(sys.argv) < 2:
-        print("Usage: python push.py <repo-name> [server-url]")
+    args = [a for a in sys.argv[1:] if a not in ("--force", "-f")]
+    force = ("--force" in sys.argv) or ("-f" in sys.argv)
+
+    if len(args) < 1:
+        print("Usage: python push.py <repo-name> [server-url] [--force]")
         sys.exit(1)
 
-    repo_name  = sys.argv[1]
-    server_url = sys.argv[2] if len(sys.argv) >= 3 else DEFAULT_SERVER
-    push(repo_name, server_url)
+    repo_name  = args[0]
+    server_url = args[1] if len(args) >= 2 else DEFAULT_SERVER
+    push(repo_name, server_url, force=force)
